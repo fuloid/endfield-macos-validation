@@ -301,6 +301,11 @@ class Run:
             # Play opened the "SYSTEM NOTIFICATION" patch dialog in CI (a small game patch).
             # Confirm it like a user, let the patch download, then press Play again.
             self.shot('play-no-handoff')
+            code, listing = self.wine_run([clicker, 'list'], timeout=60)
+            (self.out / 'windows-after-play.txt').write_text(listing)
+            dialogs = [l for l in listing.splitlines() if 'exe=Games.exe' in l]
+            self.report['games_windows_after_play'] = dialogs
+            self.note(f'Games.exe windows after Play: {len(dialogs)}')
             self.click(clicker, 'patch_confirm')
             self.report['patch_confirm_clicked'] = True
             handed = self.wait_handoff(clicker, 90, 'patch Confirm')
@@ -316,7 +321,11 @@ class Run:
         seen_game = seen_handler = None
         handler_since = None
         game_gone_after = None
-        deadline = self.t() + args.game_timeout
+        # Full watch only after a hand-off; otherwise a short grace period in case the game
+        # started without minimizing the launcher.
+        watch = args.game_timeout if handed else min(args.game_timeout, 60)
+        self.report['game_watch_seconds'] = watch
+        deadline = self.t() + watch
         while self.t() < deadline:
             time.sleep(5)
             names = self.tasks()

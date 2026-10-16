@@ -127,12 +127,27 @@ static int post_click(HWND hwnd, POINT pt)
     return 0;
 }
 
+/* Windows of the same process count as the target: modal dialogs (e.g. the launcher's
+ * patch prompt) are separate top-level windows that take the foreground. */
+static int same_process(HWND a, HWND b)
+{
+    DWORD pa = 0, pb = 0;
+    if (!a || !b) return 0;
+    GetWindowThreadProcessId(a, &pa);
+    GetWindowThreadProcessId(b, &pb);
+    return pa && pa == pb;
+}
+
 static int send_click(HWND hwnd, POINT pt, int sx, int sy, int sw, int sh, int cursor)
 {
-    SetForegroundWindow(hwnd);
-    Sleep(300);
-    if (GetForegroundWindow() != hwnd) {
-        fwprintf(stderr, L"refusing click: target did not become foreground\n");
+    HWND fg = GetForegroundWindow();
+    if (!same_process(fg, hwnd)) {
+        SetForegroundWindow(hwnd);
+        Sleep(300);
+        fg = GetForegroundWindow();
+    }
+    if (!same_process(fg, hwnd)) {
+        fwprintf(stderr, L"refusing click: target process did not become foreground\n");
         return 1;
     }
     INPUT in = {0};
@@ -150,10 +165,16 @@ static int send_click(HWND hwnd, POINT pt, int sx, int sy, int sw, int sh, int c
     POINT actual;
     if (!GetCursorPos(&actual)) return 1;
     wprintf(L"cursor requested=%ld,%ld actual=%ld,%ld\n", pt.x, pt.y, actual.x, actual.y);
+    HWND under = GetAncestor(WindowFromPoint(actual), GA_ROOT);
     if (labs(actual.x - pt.x) > 1 || labs(actual.y - pt.y) > 1 ||
-        GetAncestor(WindowFromPoint(actual), GA_ROOT) != hwnd || GetForegroundWindow() != hwnd) {
+        !same_process(under, hwnd) || !same_process(GetForegroundWindow(), hwnd)) {
         fwprintf(stderr, L"refusing click: cursor mismatch or target is obscured\n");
         return 1;
+    }
+    if (under != hwnd) {
+        WCHAR cls[128] = L"";
+        GetClassNameW(under, cls, 128);
+        wprintf(L"clicking a window of the same process: %p class=%ls\n", under, cls);
     }
     ZeroMemory(&in.mi, sizeof(in.mi));
     in.mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
