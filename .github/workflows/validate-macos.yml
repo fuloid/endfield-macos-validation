@@ -2,6 +2,11 @@ name: Validate Wine on macOS
 
 'on':
   workflow_dispatch:
+    inputs:
+      game_test:
+        description: 'Also launch the private Endfield sample (needs ENDFIELD_SAMPLE_URL / ENDFIELD_SAMPLE_SHA256 secrets)'
+        type: boolean
+        default: false
   push:
     branches: [ci/macos-validation]
     paths:
@@ -137,6 +142,22 @@ jobs:
         run: bash port/mac-handoff/build-mac.sh build
       - name: Run Wine and instruction probe under Rosetta
         run: python3 scripts/run_macos_smoke.py --work "$WORK_DIR"
+      - name: Launch Endfield sample (opt-in)
+        if: always() && inputs.game_test && steps.build.outcome == 'success'
+        env:
+          SAMPLE_URL: ${{ secrets.ENDFIELD_SAMPLE_URL }}
+          SAMPLE_SHA256: ${{ secrets.ENDFIELD_SAMPLE_SHA256 }}
+        run: |
+          if [ -z "$SAMPLE_URL" ] || [ -z "$SAMPLE_SHA256" ]; then
+            echo "Sample secrets are not configured; skipping."; exit 0
+          fi
+          game="$RUNNER_TEMP/endfield-sample"
+          mkdir -p "$game"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/sample.tar.xz" "$SAMPLE_URL"
+          echo "$SAMPLE_SHA256  $RUNNER_TEMP/sample.tar.xz" | shasum -a 256 -c -
+          tar -xJf "$RUNNER_TEMP/sample.tar.xz" -C "$game"
+          rm -f "$RUNNER_TEMP/sample.tar.xz"
+          python3 scripts/run_game_smoke.py --work "$WORK_DIR" --game "$game" --timeout 420
       - name: Package installed runtime and provenance
         if: always() && steps.build.outcome == 'success'
         run: |
@@ -194,6 +215,14 @@ jobs:
             ${{ env.WORK_DIR }}/smoke
           retention-days: 3
           if-no-files-found: warn
+      - name: Upload Endfield sample logs (no game files)
+        if: always() && inputs.game_test
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: endfield-game-smoke
+          path: ${{ env.WORK_DIR }}/game-smoke
+          retention-days: 3
+          if-no-files-found: ignore
       - name: Upload compiled Wine runtime
         if: always() && steps.build.outcome == 'success'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

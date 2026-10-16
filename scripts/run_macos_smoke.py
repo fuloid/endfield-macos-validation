@@ -67,7 +67,7 @@ def main():
         report.update(passed=True, nop_skip_trace_found='-byte NOP' in content,
                       xgetbv_emulation_trace_found='emulated xgetbv' in content)
         print('\n'.join(line for line in content.splitlines() if any(
-            word in line for word in ['CPUID:', 'PASS ', 'Runtime checks:', 'emulated xgetbv', '-byte NOP'])), flush=True)
+            word in line for word in ['CPUID:', 'PASS ', 'FAIL ', 'INFO ', 'Runtime checks:', 'emulated xgetbv', '-byte NOP', 'executable page'])), flush=True)
     finally:
         (out / 'smoke.json').write_text(json.dumps(report, indent=2) + '\n')
         server = prefix / 'bin/wineserver'
