@@ -6,6 +6,10 @@ name: Validate Wine on macOS
 permissions:
   contents: read
 
+defaults:
+  run:
+    shell: bash
+
 concurrency:
   group: macos-wine-validation
   cancel-in-progress: false
@@ -96,10 +100,12 @@ jobs:
       - name: Configure full x86_64 macOS Wine
         run: bash port/mac-handoff/build-mac.sh configure
       - name: Build and install full Wine
+        id: build
         run: bash port/mac-handoff/build-mac.sh build
       - name: Run Wine and instruction probe under Rosetta
         run: python3 scripts/run_macos_smoke.py --work "$WORK_DIR"
       - name: Package installed runtime and provenance
+        if: always() && steps.build.outcome == 'success'
         run: |
           mkdir -p "$RUNNER_TEMP/wine-artifacts"
           cp port/mac-handoff/PROVENANCE.txt "$WORK_DIR/wine-install/"
@@ -155,7 +161,8 @@ jobs:
             ${{ env.WORK_DIR }}/smoke
           retention-days: 3
           if-no-files-found: warn
-      - name: Upload validated Wine build
+      - name: Upload compiled Wine runtime
+        if: always() && steps.build.outcome == 'success'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: wine-11.19-macos-x86_64

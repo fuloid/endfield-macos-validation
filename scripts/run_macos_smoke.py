@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -45,6 +46,16 @@ def main():
                 raise
 
     try:
+        config = (args.work / 'wine-build/include/config.h').read_text()
+        libraries = []
+        for macro in ['SONAME_LIBFREETYPE', 'SONAME_LIBGNUTLS', 'SONAME_LIBVULKAN']:
+            match = re.search(r'^#define ' + macro + r' "([^"]+)"', config, re.M)
+            if not match or not Path(match.group(1)).is_absolute():
+                raise RuntimeError(f'{macro} must specify an absolute runtime library path')
+            libraries.append(match.group(1))
+        execute('compile-dlopen-probe', ['/usr/bin/clang', '-arch', 'x86_64', '-O2', '-Wall', '-Wextra',
+                                        '-Werror', ROOT / 'scripts/mac_dlopen_probe.c', '-o', out / 'dlopen-probe'], 60)
+        execute('load-runtime-libraries', ['arch', '-x86_64', out / 'dlopen-probe', *libraries], 60)
         execute('compile-probe', ['x86_64-w64-mingw32-gcc', '-O2', '-static', '-Wall', '-Wextra',
                                  '-Werror', HANDOFF / 'rosetta_probe.c', '-o', out / 'rosetta_probe.exe'], 120)
         execute('version', ['arch', '-x86_64', wine, '--version'], 60)

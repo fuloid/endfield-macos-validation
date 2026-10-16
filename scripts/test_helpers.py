@@ -45,29 +45,34 @@ def main():
     compiler = shlex.split(os.environ.get('HOST_CC', 'cc'))
     report = {'revision': REV, 'source': str(args.source) if args.source else 'pinned download + patches',
               'patched_signal_sha256': hashlib.sha256(source.encode()).hexdigest(), 'tests': {}}
-    for name, helper, filename, summary in [
-        ('noptest', 'rosetta_skip_long_nop', 'extracted.c', 'NOP checks: 4378, failures: 0'),
-        ('xgetbvtest', 'rosetta_emulate_xgetbv', 'extracted_xgetbv.c', 'XGETBV checks: 11, failures: 0')]:
-        match = re.search(r'^static (?:inline )?BOOL ' + helper + r'\(.*?^\}', source, re.M | re.S)
-        if not match:
-            raise RuntimeError(f'Helper missing: {helper}')
-        body = match.group(0) + '\n'
-        if body != (HANDOFF / filename).read_text():
-            raise RuntimeError(f'Helper differs from audited copy: {helper}')
-        (work / filename).write_text(body, encoding='utf-8', newline='\n')
-        shutil.copyfile(HANDOFF / f'{name}.c', work / f'{name}.c')
-        flags = ['-std=c11', '-O1', '-g', '-Wall', '-Wextra', '-Werror', '-Wno-unused-parameter']
-        if args.sanitize:
-            flags += ['-fsanitize=address,undefined', '-fno-omit-frame-pointer']
-        exe = work / (name + ('.exe' if os.name == 'nt' else ''))
-        run([*compiler, *flags, work / f'{name}.c', '-o', exe])
-        result = run([exe], capture_output=True, text=True)
-        print(result.stdout, flush=True)
-        (args.output / f'{name}.log').write_text(result.stdout)
-        if summary not in result.stdout:
-            raise RuntimeError(f'Expected summary missing: {name}')
-        report['tests'][name] = {'passed': True, 'helper_sha256': hashlib.sha256(body.encode()).hexdigest()}
-    (args.output / 'helpers.json').write_text(json.dumps(report, indent=2) + '\n')
+    try:
+        for name, helper, filename, summary in [
+            ('noptest', 'rosetta_skip_long_nop', 'extracted.c', 'NOP checks: 4378, failures: 0'),
+            ('xgetbvtest', 'rosetta_emulate_xgetbv', 'extracted_xgetbv.c', 'XGETBV checks: 11, failures: 0')]:
+            report['tests'][name] = {'passed': False}
+            match = re.search(r'^static (?:inline )?BOOL ' + helper + r'\(.*?^\}', source, re.M | re.S)
+            if not match:
+                raise RuntimeError(f'Helper missing: {helper}')
+            body = match.group(0) + '\n'
+            if body != (HANDOFF / filename).read_text():
+                raise RuntimeError(f'Helper differs from audited copy: {helper}')
+            (work / filename).write_text(body, encoding='utf-8', newline='\n')
+            shutil.copyfile(HANDOFF / f'{name}.c', work / f'{name}.c')
+            flags = ['-std=c11', '-O1', '-g', '-Wall', '-Wextra', '-Werror', '-Wno-unused-parameter']
+            if args.sanitize:
+                flags += ['-fsanitize=address,undefined', '-fno-omit-frame-pointer']
+            exe = work / (name + ('.exe' if os.name == 'nt' else ''))
+            run([*compiler, *flags, work / f'{name}.c', '-o', exe])
+            result = subprocess.run([str(exe)], capture_output=True, text=True)
+            output = result.stdout + result.stderr
+            print(output, flush=True)
+            (args.output / f'{name}.log').write_text(output)
+            report['tests'][name]['exit_code'] = result.returncode
+            if result.returncode or summary not in output:
+                raise RuntimeError(f'{name} failed; see saved log')
+            report['tests'][name].update(passed=True, helper_sha256=hashlib.sha256(body.encode()).hexdigest())
+    finally:
+        (args.output / 'helpers.json').write_text(json.dumps(report, indent=2) + '\n')
 
 
 if __name__ == '__main__':

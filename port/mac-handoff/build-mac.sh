@@ -47,6 +47,11 @@ configure() {
     freetype_prefix="$("$BREW" --prefix freetype)"
     gnutls_prefix="$("$BREW" --prefix gnutls)"
     mvk_prefix="$("$BREW" --prefix molten-vk)"
+    local dylib
+    for dylib in "$freetype_prefix/lib/libfreetype.dylib" "$gnutls_prefix/lib/libgnutls.dylib" "$mvk_prefix/lib/libMoltenVK.dylib"; do
+        [ -f "$dylib" ] || die "Missing runtime library: $dylib"
+        lipo -verify_arch x86_64 "$dylib"
+    done
     export PATH="$bison_prefix/bin:$("$TOOL_BREW" --prefix)/bin:/usr/local/bin:$PATH"
     export PKG_CONFIG_LIBDIR="$freetype_prefix/lib/pkgconfig:$gnutls_prefix/lib/pkgconfig:/usr/local/lib/pkgconfig:/usr/local/share/pkgconfig"
     export PKG_CONFIG_PATH="$PKG_CONFIG_LIBDIR"
@@ -58,7 +63,10 @@ configure() {
     mkdir -p "$BUILD"
     [ ! -f "$BUILD/Makefile" ] || die 'Build already configured; use build or a new WORK_DIR.'
     (cd "$BUILD" && CC="${CC:-/usr/bin/clang -arch x86_64}" CXX="${CXX:-/usr/bin/clang++ -arch x86_64}" \
-        OBJC="${OBJC:-/usr/bin/clang -arch x86_64}" "$SOURCE/configure" \
+        OBJC="${OBJC:-/usr/bin/clang -arch x86_64}" \
+        ac_cv_lib_soname_freetype="$freetype_prefix/lib/libfreetype.dylib" \
+        ac_cv_lib_soname_gnutls="$gnutls_prefix/lib/libgnutls.dylib" \
+        ac_cv_lib_soname_vulkan="$mvk_prefix/lib/libMoltenVK.dylib" "$SOURCE/configure" \
         --build=x86_64-apple-darwin --host=x86_64-apple-darwin \
         --enable-archs=x86_64 --with-mingw --disable-tests --without-x \
         --with-freetype --with-gnutls --with-vulkan --without-gstreamer \
