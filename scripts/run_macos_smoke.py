@@ -46,13 +46,23 @@ def main():
                 raise
 
     try:
-        config = (args.work / 'wine-build/include/config.h').read_text()
+        # config.h exists after a real build; cached builds carry a copy in wine-install. Builds
+        # cached before that copy existed fall back to the paths build-mac.sh configures.
+        config = ''
+        for candidate in (args.work / 'wine-build/include/config.h', prefix / 'BUILD-config.h'):
+            if candidate.is_file():
+                config = candidate.read_text()
+                break
+        fallback = {'SONAME_LIBFREETYPE': '/usr/local/opt/freetype/lib/libfreetype.dylib',
+                    'SONAME_LIBGNUTLS': '/usr/local/opt/gnutls/lib/libgnutls.dylib',
+                    'SONAME_LIBVULKAN': '/usr/local/opt/molten-vk/lib/libMoltenVK.dylib'}
         libraries = []
         for macro in ['SONAME_LIBFREETYPE', 'SONAME_LIBGNUTLS', 'SONAME_LIBVULKAN']:
             match = re.search(r'^#define ' + macro + r' "([^"]+)"', config, re.M)
-            if not match or not Path(match.group(1)).is_absolute():
+            path = match.group(1) if match else (None if config else fallback[macro])
+            if not path or not Path(path).is_absolute():
                 raise RuntimeError(f'{macro} must specify an absolute runtime library path')
-            libraries.append(match.group(1))
+            libraries.append(path)
         execute('compile-dlopen-probe', ['/usr/bin/clang', '-arch', 'x86_64', '-O2', '-Wall', '-Wextra',
                                         '-Werror', ROOT / 'scripts/mac_dlopen_probe.c', '-o', out / 'dlopen-probe'], 60)
         execute('load-runtime-libraries', ['arch', '-x86_64', out / 'dlopen-probe', *libraries], 60)
