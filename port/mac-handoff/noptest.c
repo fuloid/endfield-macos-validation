@@ -27,6 +27,11 @@ int main(void){
     {{0x0f,0x1f,0x05,1,2,3,4},7,"nop [rip+disp32]"},
     {{0x0f,0x1f,0x04,0x25,1,2,3,4},8,"nop [disp32] via SIB"},
     {{0x0f,0x0b},0,"ud2 (must NOT skip)"},
+    {{0xf3,0x0f,0x1e,0xfa},4,"endbr64 (0F 1E hint space)"},
+    {{0x0f,0x1f,0xc9},3,"0F 1F /1 (hint NOP, any ModRM.reg)"},
+    {{0x48,0x66,0x0f,0x1f,0xc1},5,"REX before a legacy prefix"},
+    {{0x48,0x41,0x0f,0x1f,0xc1},5,"two REX prefixes"},
+    {{0x0f,0x18,0xc1},0,"0F 18 (outside 0F 1E/1F, not skipped)"},
   };
   int fail=0;
   unsigned count=0;
@@ -36,19 +41,19 @@ int main(void){
   }
   /* Every ModRM, including SIB/no-base, and every shorter readable length.
      A rejected/truncated instruction must leave RIP unchanged. */
+  for(unsigned op=0x1e;op<=0x1f;op++)
   for(unsigned modrm=0;modrm<256;modrm++){
     unsigned mod=modrm>>6,rm=modrm&7;
-    BYTE b[16]={0x0f,0x1f,(BYTE)modrm,0x25,0,0,0,0,0};
+    BYTE b[16]={0x0f,(BYTE)op,(BYTE)modrm,0x25,0,0,0,0,0};
     unsigned want=3;
     if(mod!=3){
       if(rm==4) { want++; if(mod==0) want+=4; }
       else if(mod==0 && rm==5) want+=4;
       if(mod==1) want++; else if(mod==2) want+=4;
     }
-    if((modrm>>3)&7) want=0;
     for(unsigned len=0;len<=16;len++){
       int bad=check(b,len,len>=want?want:0);
-      if(bad) printf("FAIL ModRM=%02x readable=%u\n",modrm,len);
+      if(bad) printf("FAIL 0F %02X ModRM=%02x readable=%u\n",op,modrm,len);
       fail+=bad; count++;
     }
   }

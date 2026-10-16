@@ -51,10 +51,12 @@ int main(void)
     call_fn call=(call_fn)(uintptr_t)code;
     const BYTE nops[][10]={
         {0x0f,0x1f,0xc1}, {0x0f,0x1f,0x00},
-        {0x66,0x2e,0x0f,0x1f,0x84,0,0,0,0,0}
+        {0x66,0x2e,0x0f,0x1f,0x84,0,0,0,0,0},
+        {0xf3,0x0f,0x1e,0xfa}, /* endbr64 */
+        {0x0f,0x1f,0xc9}       /* 0F 1F /1 hint NOP */
     };
-    const unsigned lengths[]={3,3,10};
-    for(unsigned i=0;i<3;i++)
+    const unsigned lengths[]={3,3,10,4,3};
+    for(unsigned i=0;i<5;i++)
     {
         BYTE bytes[16];
         memcpy(bytes,nops[i],lengths[i]);
@@ -65,6 +67,19 @@ int main(void)
         uint64_t result=call(0);
         int ok=result==42 && seen==0;
         printf("%s NOP form %u\n",ok?"PASS":"FAIL",i+1); failures+=!ok;
+    }
+    /* Self-modifying code: run code, rewrite the same executed W|X page, run again. Rosetta
+       can fault on the write and must not keep executing the stale translation. */
+    {
+        const BYTE first[]={0xb8,7,0,0,0,0xc3}, second[]={0xb8,9,0,0,0,0xc3}; /* mov eax,N; ret */
+        uint64_t r1, r2;
+        load_code(first,sizeof first); expected_exception=0; skip=0;
+        r1=call(0);
+        load_code(second,sizeof second);
+        r2=call(0);
+        int smc_ok=r1==7 && r2==9 && seen==0;
+        printf("%s self-modifying code (got %llu then %llu)\n",smc_ok?"PASS":"FAIL",
+               (unsigned long long)r1,(unsigned long long)r2); failures+=!smc_ok;
     }
     /* xgetbv; shl rdx,32; or rax,rdx; ret. ECX is the Windows argument. */
     const BYTE xgetbv[]={0x0f,0x01,0xd0,0x48,0xc1,0xe2,0x20,0x48,0x09,0xd0,0xc3};
@@ -83,6 +98,6 @@ int main(void)
     printf("%s UD2 remains c000001d\n",ok?"PASS":"FAIL"); failures+=!ok;
     RemoveVectoredExceptionHandler(handler);
     VirtualFree(code,0,MEM_RELEASE);
-    printf("Runtime checks: 6, failures: %d\n",failures);
+    printf("Runtime checks: 9, failures: %d\n",failures);
     return failures?1:0;
 }

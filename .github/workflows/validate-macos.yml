@@ -84,6 +84,32 @@ jobs:
             git rev-parse HEAD
           } > "$WORK_DIR/diagnostics/environment.txt" 2>&1
           cat "$WORK_DIR/diagnostics/environment.txt"
+      - name: Probe GUI session and Metal device
+        continue-on-error: true
+        run: |
+          out="$WORK_DIR/diagnostics/gui-metal"
+          mkdir -p "$out"
+          cat > "$out/metal.swift" <<'SWIFT'
+          import Metal
+          guard let d = MTLCreateSystemDefaultDevice() else { print("Metal: no device"); exit(1) }
+          print("Metal device: \(d.name)")
+          print("lowPower=\(d.isLowPower) headless=\(d.isHeadless) unifiedMemory=\(d.hasUnifiedMemory)")
+          for (n, f) in [("apple7", MTLGPUFamily.apple7), ("apple8", .apple8), ("apple9", .apple9),
+                         ("mac2", .mac2), ("metal3", .metal3)] { print("supportsFamily(\(n))=\(d.supportsFamily(f))") }
+          SWIFT
+          {
+            echo "== console user / WindowServer"
+            stat -f '%Su' /dev/console || true
+            pgrep -lx WindowServer || echo "WindowServer not running"
+            echo "== displays"
+            system_profiler SPDisplaysDataType || true
+            echo "== Metal (native arm64)"
+            swift "$out/metal.swift" || true
+            echo "== Metal (x86_64 under Rosetta)"
+            swiftc -target x86_64-apple-macos13 "$out/metal.swift" -o "$out/metal-x86_64" && arch -x86_64 "$out/metal-x86_64" || true
+            echo "== screencapture"
+            screencapture -x "$out/screen.png" && sips -g pixelWidth -g pixelHeight "$out/screen.png" || echo "screencapture failed"
+          } 2>&1 | tee "$out/probe.txt"
       - name: Check handoff integrity
         working-directory: port/mac-handoff
         run: shasum -a 256 -c SHA256SUMS

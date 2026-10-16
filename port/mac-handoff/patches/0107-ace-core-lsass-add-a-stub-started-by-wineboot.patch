@@ -1,0 +1,56 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mary <pastaunforgiven@gmail.com>
+Date: Thu, 15 Oct 2026 09:18:24 +0700
+Subject: [PATCH] lsass: Add a stub and start it from wineboot.
+
+ACE requires a running lsass.exe during DriverInit. Wine 11.17+'s
+demand-start lsass service does not ensure this.
+
+Adapted from dwproton commits 96082b1f99 and a000117363 by shxrrydw.
+Omit csrss (unused by ACE) and the session 0 move (requires server
+patches not included here).
+
+Upstream Wine 11.19 port of Endfield_FineWine cc4cefa patches/stage2-dwproton/ace-core/0007-lsass-add-a-stub-started-by-wineboot.patch.
+Upstream already ships a real lsass.exe as the demand-start SamSs service, which exits
+if started outside the service manager. Instead of adding a second lsass stub, wineboot
+starts the SamSs service, so an lsass.exe process exists as ACE-CORE requires.
+---
+diff --git a/programs/wineboot/wineboot.c b/programs/wineboot/wineboot.c
+index 0a88a98..9b4676c 100644
+--- a/programs/wineboot/wineboot.c
++++ b/programs/wineboot/wineboot.c
+@@ -1462,6 +1462,26 @@ static BOOL create_native_process( const WCHAR *app, WCHAR *cmdline, BOOL inheri
+     return ret;
+ }
+ 
++/* ACE-CORE and similar drivers expect an lsass.exe process to exist. */
++static void start_lsass_service(void)
++{
++    SC_HANDLE manager, service;
++
++    if (!(manager = OpenSCManagerW( NULL, NULL, SC_MANAGER_CONNECT )))
++    {
++        WINE_ERR( "Couldn't open service manager: error %lu\n", GetLastError() );
++        return;
++    }
++    if ((service = OpenServiceW( manager, L"SamSs", SERVICE_START )))
++    {
++        if (!StartServiceW( service, 0, NULL ) && GetLastError() != ERROR_SERVICE_ALREADY_RUNNING)
++            WINE_ERR( "Couldn't start lsass.exe: error %lu\n", GetLastError() );
++        CloseServiceHandle( service );
++    }
++    else WINE_ERR( "Couldn't open SamSs service: error %lu\n", GetLastError() );
++    CloseServiceHandle( manager );
++}
++
+ static BOOL start_services_process(void)
+ {
+     static const WCHAR svcctl_started_event[] = SVCCTL_STARTED_EVENT;
+@@ -1936,6 +1956,7 @@ int __cdecl main( int argc, char *argv[] )
+         start_services_process();
+     }
+     if (init || update) update_wineprefix( update );
++    if (init || (kill && !restart)) start_lsass_service();
+ 
+     create_volatile_environment_registry_key();
+     create_known_dlls();

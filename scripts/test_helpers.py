@@ -47,7 +47,7 @@ def main():
               'patched_signal_sha256': hashlib.sha256(source.encode()).hexdigest(), 'tests': {}}
     try:
         for name, helper, filename, summary in [
-            ('noptest', 'rosetta_skip_long_nop', 'extracted.c', 'NOP checks: 4378, failures: 0'),
+            ('noptest', 'rosetta_skip_long_nop', 'extracted.c', 'NOP checks: 8735, failures: 0'),
             ('xgetbvtest', 'rosetta_emulate_xgetbv', 'extracted_xgetbv.c', 'XGETBV checks: 11, failures: 0')]:
             report['tests'][name] = {'passed': False}
             match = re.search(r'^static (?:inline )?BOOL ' + helper + r'\(.*?^\}', source, re.M | re.S)

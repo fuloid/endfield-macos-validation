@@ -33,3 +33,31 @@ The relative-wait patch uses QPC ticks as 100ns units; the pinned Wine implement
 DXMT's Wine 8+ prerequisite does not guarantee that any prebuilt unixlib works with every Wine build. The handoff requires actual backend-load checks and supports rebuilding against the selected Wine build. No FPS or full-build duration has been measured on an M4 Air here.
 
 Run `python port/verify_port.py` from the original Windows workspace to reproduce the evidence in `port/audit/verification.json`. It may fetch missing Git objects from the pinned source repositories. The JSON includes expected failures for attempts to reapply old backports to newer trees; the required selected handoff recipe must pass. Detailed Mac steps: `MAC_HANDOFF.md`.
+
+## Re-audit 2026-10-16: FineWine moved on (ACE-CORE)
+
+FineWine `cc4cefa` (2026-10-15) adds `patches/stage2-dwproton/ace-core/0001`–`0019` for the game's new `ACE-CORE*.sys` driver. The handoff above was pinned to `3d3fbec` and had none of them. With the current game it would hit `KeBugCheckEx 0x65636157` at `DriverEntry` and not launch. FineWine reports the game as launching and playable with `0001`–`0016`. A remaining `0x65636154` ("Tace") watchdog bugcheck is described there as cosmetic.
+
+Upstream-11.19 port (`acecore/patches`, gated by `acecore/verify_acecore.py`; applied on top of the six base patches it reproduces tree `c0e838c9`):
+
+| FineWine patch | Port |
+|---|---|
+| 0001 new imports | Ported. Dropped duplicate x86_64 `KeGetCurrentIrql`. `KeTryToAcquireGuardedMutex` uses CAS (the original's decrement/re-increment can race with a release). |
+| 0002 security cookie | Omitted: upstream's `update_security_cookie` is a newer form of the same fix, called from the same place. |
+| 0003–0006 | Applied unchanged (`DriverInit` kernel return address, `MmCopyMemory`, service name, `PsGetProcessExitStatus`). |
+| 0007 lsass | Re-implemented. Upstream ships a real `lsass.exe` as the demand-start `SamSs` service (exits if launched outside the SCM). wineboot now starts that service. |
+| 0008, 0009 | Omitted: identical `get_kernel_obj_list` for tokens/directories already upstream. |
+| 0010 MDL | Upstream has the MDL implementations; only the section-view retention (`mapped_views`, `ZwUnmapViewOfSection`) is ported. |
+| 0011, 0013 | Omitted: every added line is already present upstream. |
+| 0012, 0014, 0015 | Applied (0012 with offsets; checked for duplicates and `#ifdef` placement). |
+| 0016 `IoThreadToProcess` | Omitted: upstream implements it (`thread->kthread.process`). |
+| 0017–0019 | Not ported: experimental cross-process callbacks FineWine tested as not changing the outcome. |
+
+Corrections to the earlier sections: `PsGetProcessExitStatus` is no longer a stub (`0106`). The `ROSETTA_ADVERTISE_AVX` wrapper claim is not confirmed by the CrossOver 26.3 source, which only mentions the variable in a comment. Setting it remains reasonable. Still unverified: compilation of the ace-core port on Darwin, behaviour without MSync (FineWine always runs with MSync on), and ACE runtime behaviour on upstream Wine.
+
+## Re-audit 2026-10-16: decoder parity, CrossOver Rosetta workarounds, first macOS run
+
+- NOP decoder widened to match hardware and FineWine: `0F 1E` and `0F 1F` with any ModRM.reg, REX anywhere among prefixes. LOCK, over-long (>15 bytes) and truncated forms stay rejected as on hardware (FineWine skips these). 8,735 helper checks pass.
+- New `0003` ports CrossOver hacks found by the independent GPT review (`review-gpt/REPORT.md` section 4): 22131, 24256, 24265 (MXCSR reload via a thunk reading the unused `syscall_frame->align[0]`, since upstream does not restore GS before the dispatcher), 24945, 25719, 18947. It is rebased for 11.19 only; on other trees it is informational.
+- First Apple Silicon CI run (38845562248, macOS 15.7 arm64): full build, install and wineboot succeeded. `rosetta_skip_long_nop skipped 3-byte NOP` fired, so Rosetta does fault on `0F 1F C1` and the patch handles it. The probe then crashed rewriting its executed RWX page (unhandled write fault), which is exactly CW Hack 24945 and is fixed by `0003`.
+- `verify_port.py` now sets `GIT_CEILING_DIRECTORIES`: once the workspace became a git repository, `git apply` inside snapshots silently skipped every hunk. The committed evidence predates this and was valid.

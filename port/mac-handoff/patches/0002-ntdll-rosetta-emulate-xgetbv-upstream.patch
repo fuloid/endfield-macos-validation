@@ -1,7 +1,8 @@
 diff --git a/dlls/ntdll/unix/signal_x86_64.c b/dlls/ntdll/unix/signal_x86_64.c
+index 583c353..2458616 100644
 --- a/dlls/ntdll/unix/signal_x86_64.c
 +++ b/dlls/ntdll/unix/signal_x86_64.c
-@@ -2006,6 +2006,34 @@
+@@ -2009,6 +2009,34 @@ static BOOL rosetta_skip_long_nop( ucontext_t *sigcontext )
  #endif
  
  
@@ -36,7 +37,7 @@ diff --git a/dlls/ntdll/unix/signal_x86_64.c b/dlls/ntdll/unix/signal_x86_64.c
  #pragma pack(push,1)
  union atl_thunk
  {
-@@ -2363,6 +2391,11 @@
+@@ -2366,6 +2394,11 @@ static void segv_handler( int signal, siginfo_t *siginfo, void *_sigcontext )
              leave_handler( data, sigcontext );
              return;
          }
@@ -48,7 +49,7 @@ diff --git a/dlls/ntdll/unix/signal_x86_64.c b/dlls/ntdll/unix/signal_x86_64.c
          /* Rosetta 2 reports privileged instructions (e.g. mov reg,crX) as invalid
           * opcodes rather than #GP; report them the same way as on native x86. */
          if ((rec.ExceptionCode = is_privileged_instr( &context.c ))) break;
-@@ -2891,6 +2924,10 @@
+@@ -2894,6 +2927,10 @@ void signal_init_process( TEB *teb )
      __asm__( "movw %%cs,%0" : "=m" (cs64_sel) );
      __asm__( "movw %%ss,%0" : "=m" (ds64_sel) );
  

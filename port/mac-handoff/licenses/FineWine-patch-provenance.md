@@ -21,6 +21,8 @@ Original to this project. The two Rosetta fixes live in `dlls/ntdll/unix/signal_
 
 - `0004-ntdll-don-t-close-the-msync-alert-index-on-thread-exit.patch`, in `dlls/ntdll/unix/thread.c`:
   - Skips closing `alert_fd` on thread exit under MSync: it holds a shared-memory index owned by the server. Closing it can close another thread's wineserver pipe and cause Unity's "SuspendThread loop failed" error.
+- `0005-msync-fix-waitall-rollback.patch`, in `dlls/ntdll/unix/msync.c`:
+  - When another thread wins an object partway through a WaitAll, the rollback now leaves recursively owned mutexes alone, restores abandoned mutexes as abandoned, and wakes waiters on every object it puts back. Test: `python3 tests/test-msync-waitall.py <wine-src>`.
 
 ## `stage2-dwproton/` — the ported dw-proton anti-cheat patches
 
@@ -31,6 +33,20 @@ The Endfield-relevant subset of dw-proton's fix commit `b816be489`, from the `da
 - `misc/0011…` — `NtDelayExecution` relative-wait via QueryPerformanceCounter (ACE is timing-sensitive).
 - `misc/0008…` — wintrust winex11/winewayland bypass. **macOS-irrelevant** (targets `winex11.drv`); applies cleanly, does nothing on `winemac.drv`; kept for completeness.
 - `em-backports/0001-0017…` — the `ntoskrnl.exe` functions ACE calls (`KeAcquireGuardedMutex`, `PsGetProcessImageFileName`, `MmGetPhysicalMemoryRanges`, …). `0010` (`PsGetProcessImageFileName`) is the exact WineHQ-bug-59411 Linux blocker.
+- `ace-core/` — **new (Oct 2026): support for the new `ACE-CORE<version>.sys` anti-cheat driver** that replaced `ACE-BASE.sys` and made the game stop launching (`KeBugCheckEx 0x65636157`). Ported from the downstream fork [`mary-ext/crossover-wine-endfield`](https://github.com/mary-ext/crossover-wine-endfield), which solved it. Full analysis: [../docs/project-information/14-ace-core-regression.md](../docs/project-information/14-ace-core-regression.md).
+  - `0001` — the new `ntoskrnl.exe` imports CORE requests but Wine lacks: `PsGetCurrentThreadTeb`, `KeIpiGenericCall`, `KeTryToAcquireGuardedMutex`, `KeSetSystemGroupAffinityThread`, `KeRevertToUserGroupAffinityThread`, `KeGetProcessorNumberFromIndex`, `ObDereferenceObjectDeferDelete`, plus a `KeGetCurrentIrql` stub. (⚠️ necessary plumbing, **not** the bugcheck fix on its own.)
+  - `0002` — update the driver security cookie once relocation has happened.
+  - `0003` — **the bugcheck fix:** call `DriverInit` with bits 48–63 of the return address set (`0xFFFF800000000000`), so ACE-CORE's "called by the kernel?" check passes. Ported from dwproton `09a9cb034e`.
+  - `0004` — `MmCopyMemory` stub (+ `MM_COPY_ADDRESS` in `wdm.h`). dwproton `593daa15ba`.
+  - `0005` — pass only the bare service name in `DriverExtension->ServiceKeyName` / to `DriverInit`. dwproton `4acd1acf8a`.
+  - `0006` — implement `PsGetProcessExitStatus` (was a `@ stub`). macos/0005 downstream.
+  - `0007` — add an `lsass.exe` stub and start it from `wineboot` (ACE-CORE scans the process list for `lsass.exe` and fails `DriverInit` without one). macos/0007 downstream. **Shipping this also swaps `lsass.exe` + `wineboot.exe`** — see `scripts/{build-wine,package,apply-modules,swap-into-crossover}.sh` and the patcher payload.
+  - `0008`–`0014` — kernel objects for tokens/directories (server), the MDL/section-view implementations, remaining imports/stubs, upstream alignment, and the `PsGetContextThread` thunk. See [../docs/project-information/14-ace-core-regression.md](../docs/project-information/14-ace-core-regression.md) §12–§13.
+  - `0015` — real `ObRegisterCallbacks`/`ObUnRegisterCallbacks` + the `OB_OPERATION_HANDLE_*` constants, dispatching pre/post callbacks from `ObReferenceObjectByHandle`. ACE-CORE's process/thread handle-operation callbacks now actually run (previously a fake-success stub) — a correctness improvement, but it does **not** satisfy the `"Tace"` watchdog (which needs cross-process routing). See [14 §13.9](../docs/project-information/14-ace-core-regression.md).
+  - `0016` — implement `IoThreadToProcess` (`PETHREAD → PEPROCESS`; was `@ stub`). Needed because ACE-CORE's Ob pre-op callback (reachable via `0015`) calls it; without it the driver host aborted into WineDbg.
+  - `0017` — **experimental, tested negative:** make the process/thread `PsSet*NotifyRoutine` exports register/dispatch real callbacks (from `create_process_object`/`create_thread_object`). The dispatch fires on hardware, but `KeBugCheckEx 0x65636154` ("Tace") still occurs — so ACE-CORE's runtime ~1 s watchdog waits on something else. Kept for reference. See [14 §13.9](../docs/project-information/14-ace-core-regression.md). (`0015`–`0017` are numbered in *apply* order: Ob → `IoThreadToProcess` → notify.)
+  - `0018` — **cross-process Ob handle notifications** (`server/` + `ntoskrnl` + regenerated protocol headers). Adds `IRP_CALL_OB` and `ob_register_callbacks`/`ob_unregister_callbacks` (**appended at the end of `protocol.def`** — inserting mid-file shifts every later `REQ_*` and crashes not-rebuilt client modules), an `ob_managers` list with `notify_ob_operation()` that queues a notification to each interested device manager from `open_process`/`open_thread`, and ntoskrnl `dispatch_ob` that resolves the pid/tid and invokes the registered callbacks. Verified on hardware: the cross-process path fires ~18,000× — but `"Tace"` still fires (it is **not** an Ob/handle watchdog). Correctness feature, not a fix. See [14 §13.9](../docs/project-information/14-ace-core-regression.md).
+  - `0019` — **cross-process load-image notifications** (the last untried callback family). Adds `IRP_CALL_IMG` (image name carried in the IRP input buffer), fires it from `server/mapping.c:add_process_view` on every `SEC_IMAGE` view, and on a manager's registration **replays** all currently-mapped PE images (`replay_image_loads()`); ntoskrnl `dispatch_img` invokes `PsSetLoadImageNotifyRoutineEx` callbacks. Verified on hardware: ~2,960 image-load callbacks delivered across all processes (incl. the launcher/game modules), yet `"Tace"` still fires. **Closes the callback hypothesis** — `Tace` is not callback-driven. See [14 §13.9](../docs/project-information/14-ace-core-regression.md).
 
 ## `moltenvk/`
 
@@ -52,11 +68,10 @@ Applied by `scripts/build-moltenvk.sh` to MoltenVK v1.4.2 and its pinned SPIRV-C
   - Bounded waiting: `waitForPresent` polls in 100 ms slices and, after a 1 s grace, treats a never-signalled present as complete. The previous code passed the app's timeout straight to `condition_variable::wait_for`; a `UINT64_MAX` timeout overflowed the absolute deadline and degenerated into a busy spin — on Endfield (which uses `VK_KHR_present_wait2`) that hung the game on the last presented frame indefinitely.
   - Propagates a lost device/surface (`VK_ERROR_DEVICE_LOST` / `VK_ERROR_SURFACE_LOST_KHR`) instead of waiting on a present that can never complete. After a Metal GPU hang or page fault, `MVKQueue::handleMTLCommandBufferError()` marks the device lost, but the old predicate only checked `VK_ERROR_OUT_OF_DATE_KHR`, so the app kept looping in the wait with no way to learn the device was gone.
 
-Known residual: ACE also calls `ntoskrnl.exe.PsGetProcessExitStatus`, which is **not** in this set (dw-proton's maintainer found that abort "not really related"); one background ACE thread aborts on it, but the game reaches login regardless. A stub would silence it.
+Known residual: ACE also called `ntoskrnl.exe.PsGetProcessExitStatus`, which dw-proton's maintainer found "not really related"; one background ACE thread used to abort on it. It is now implemented by `ace-core/0006`, so that abort is gone.
 
 ## Applying
-
-All 24 patches are unified diffs and apply cleanly with `git apply` in this order: `em-backports/*` (numeric) → `misc/*` (numeric) → `stage1-macos/*` (numeric). This is automated by [`../scripts/build-wine.sh apply`](../scripts/build-wine.sh). Expect to rebase if CrossOver's Wine base changes (the dw-proton set targets the `b816be489` snapshot; the latest lives baked into `dawn.wine/dawn-winery/wine-dwproton` branch `base`).
+All 31 patches are unified diffs and apply cleanly with `git apply` in this order: `em-backports/*` (numeric) → `misc/*` (numeric) → `ace-core/*` (numeric) → `stage1-macos/*` (numeric). This is automated by [`../scripts/build-wine.sh apply`](../scripts/build-wine.sh). Expect to rebase if CrossOver's Wine base changes (the dw-proton set targets the `b816be489` snapshot; the latest lives baked into `dawn.wine/dawn-winery/wine-dwproton` branch `base`).
 
 ## License / provenance
 
