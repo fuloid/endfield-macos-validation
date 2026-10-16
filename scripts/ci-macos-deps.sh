@@ -11,7 +11,10 @@ test -x /opt/homebrew/bin/brew
 if [ ! -x /usr/local/bin/brew ]; then
     # The current installer only supports Apple Silicon. Use official historical
     # Homebrew/core revisions that still provide Intel bottles for this experiment.
-    for directory in Homebrew Cellar Caskroom Frameworks bin etc include lib opt sbin share var; do
+    for directory in Homebrew Cellar Caskroom Frameworks bin etc etc/bash_completion.d \
+        include lib lib/pkgconfig opt sbin share share/aclocal share/doc share/info \
+        share/locale share/man share/man/man{1,2,3,4,5,6,7,8} share/zsh \
+        share/zsh/site-functions var var/log var/homebrew var/homebrew/linked; do
         sudo /usr/bin/install -d -o "$(id -un)" -g admin -m 0755 "/usr/local/$directory"
     done
     git init -q /usr/local/Homebrew
