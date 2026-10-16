@@ -4,7 +4,7 @@ Private build experiment for a pinned upstream Wine 11.19 with selected FineWine
 
 ## Run
 
-Open **Actions → Validate Wine on macOS → Run workflow**. The workflow is manual; pushes do not start paid macOS work automatically.
+Open **Actions → Validate Wine on macOS → Run workflow**. The macOS job is manual; pushes only start portable Linux helper checks. Pushes do not start macOS builds automatically.
 
 It runs portable helper tests on Linux, then builds the full x86_64 Wine runtime on an Apple Silicon `macos-15` runner and attempts the six-check probe under Rosetta. Source revision: `455e3509b98a6919fd4ad1def4803e08c41c03b2`. Two compile jobs and reduced debug information limit memory/storage use. Compiler cache entries are bounded at 1 GB. Each macOS job has a four-hour timeout.
 
