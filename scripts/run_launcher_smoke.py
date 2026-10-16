@@ -38,6 +38,8 @@ MARKERS = {
     'driver_load_failed': r'ZwLoadDriver failed',
     'lsass_start_failed': r"Couldn't (start lsass|open SamSs)",
     'qtwebengine': r'QtWebEngineProcess',
+    'no_opengl': r'Failed to (create internal root context|get a GL context)',
+    'vulkan_error': r'err:vulkan|vkCreateInstance failed|Failed to create Vulkan',
 }
 MARKERS = {k: re.compile(v) for k, v in MARKERS.items()}
 UNITY_MARKERS = ['Initialize engine version', 'Direct3D:', 'GfxDevice', 'il2cpp', 'Crash!!!']
@@ -171,29 +173,57 @@ class Run:
         clicker = self.clicker()
         self.report['clicker'] = str(clicker)
         self.head = (self.out / 'wine-head.log').open('w', errors='replace')
-        self.launcher = subprocess.Popen(['arch', '-x86_64', str(self.wine), str(self.root / 'Launcher.exe')],
-                                         cwd=str(self.root), env=self.env, stdout=subprocess.PIPE,
-                                         stderr=subprocess.STDOUT, text=True, errors='replace')
-        threading.Thread(target=self.reader, daemon=True).start()
-        self.note('started GRYPHLINK/Launcher.exe')
 
+        # Environment-only graphics fallbacks (no launcher files touched). CI VMs have no usable
+        # OpenGL for Wine, which breaks wined3d and therefore Qt's ANGLE renderer.
+        attempts = [('default', {}),
+                    ('wined3d-vulkan', {'WINE_D3D_CONFIG': 'renderer=vulkan'}),
+                    ('wined3d-vulkan+chromium-software',
+                     {'WINE_D3D_CONFIG': 'renderer=vulkan',
+                      'QTWEBENGINE_CHROMIUM_FLAGS': '--disable-gpu --disable-gpu-compositing'})]
         window = None
-        while self.t() < args.window_timeout:
-            time.sleep(10)
-            self.shot('waiting-window')
-            window, listing = self.launcher_window(clicker)
+        self.report['attempts'] = {}
+        for name, extra in attempts:
+            self.env.update(extra)
+            self.quiet.update(extra)
+            self.head.write(f'\n===== launcher attempt: {name} {extra} =====\n')
+            self.launcher = subprocess.Popen(['arch', '-x86_64', str(self.wine), str(self.root / 'Launcher.exe')],
+                                             cwd=str(self.root), env=self.env, stdout=subprocess.PIPE,
+                                             stderr=subprocess.STDOUT, text=True, errors='replace')
+            threading.Thread(target=self.reader, daemon=True).start()
+            self.note(f'started GRYPHLINK/Launcher.exe (attempt {name})')
+            crashes_before = self.counts['unhandled_exception']
+            deadline = self.t() + args.window_timeout
+            while self.t() < deadline:
+                time.sleep(10)
+                self.shot(f'waiting-window-{name}')
+                window, listing = self.launcher_window(clicker)
+                if window:
+                    (self.out / f'windows-at-launcher-{name}.txt').write_text(listing)
+                    break
+            crashed = self.counts['unhandled_exception'] - crashes_before
+            self.report['attempts'][name] = {'window': window, 'unhandled_exceptions': crashed}
             if window:
-                (self.out / 'windows-at-launcher.txt').write_text(listing)
+                self.report['graphics_mode'] = name
                 break
+            names = self.tasks(f'no-window-{name}')
+            self.note(f'attempt {name}: no launcher window, {crashed} unhandled exception(s), '
+                      f'running: {", ".join(sorted(names))}')
+            self.wine_run([str(self.wine.parent / 'wineserver'), '-k'], timeout=60)
+            try:
+                self.launcher.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                self.launcher.kill()
+            time.sleep(3)
         if not window:
-            names = self.tasks('no-window')
+            gl = 'wgl/OpenGL context creation failed' if self.counts['no_opengl'] else ''
             self.report['verdict'] = 'launcher failed'
             self.report['probable_reason'] = (
-                'no Games.exe launcher window appeared within '
-                f'{args.window_timeout}s (running: {", ".join(sorted(names)) or "nothing"}). '
-                'Likely the launcher crashed or its QtWebEngine UI could not start under this Wine '
-                '(check wine-head.log for QtWebEngineProcess / unhandled exceptions), or it is '
-                'stuck in an update/integrity step.')
+                f'no Games.exe launcher window in any graphics mode ({", ".join(n for n, _ in attempts)}). '
+                + (f'{gl} in this VM, so Direct3D (and Qt ANGLE) had no backend; ' if gl else '')
+                + 'the launcher crashed (see unhandled exceptions per attempt in game.json and '
+                'wine-head.log) or is stuck in an update/integrity step. CI-VM graphics limits are the '
+                'likely cause; a real Apple Silicon Mac has working OpenGL/Metal.')
             return
         self.report['launcher_window'] = window
         self.note(f'launcher window: {window}')
