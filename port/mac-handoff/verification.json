@@ -1,5 +1,5 @@
 {
-  "snapshots": "port/audit/verify-nnlnmgqp",
+  "snapshots": "port/audit/verify-j7yw1b21",
   "commits": {
     "wine-11.19": "455e3509b98a6919fd4ad1def4803e08c41c03b2",
     "wine-11.0": "db11d0fe6a169c457e23d007e20404643d067aa8",
@@ -230,7 +230,7 @@
         "patch": "port/0003-ntdll-rosetta-crossover-workarounds-upstream.patch",
         "context": "-C1",
         "ok": false,
-        "diagnostic": "Context reduced to (2/2) to apply fragment at 76\nerror: patch failed: dlls/ntdll/unix/signal_x86_64.c:2720\nerror: dlls/ntdll/unix/signal_x86_64.c: patch does not apply\nContext reduced to (2/2) to apply fragment at 4922"
+        "diagnostic": "error: patch failed: dlls/ntdll/unix/signal_x86_64.c:2720\nerror: dlls/ntdll/unix/signal_x86_64.c: patch does not apply\nContext reduced to (2/2) to apply fragment at 4922"
       }
     ],
     "valve/misc": [
@@ -380,7 +380,7 @@
         "patch": "port/0003-ntdll-rosetta-crossover-workarounds-upstream.patch",
         "context": "-C1",
         "ok": false,
-        "diagnostic": "Context reduced to (2/2) to apply fragment at 76\nerror: patch failed: dlls/ntdll/unix/signal_x86_64.c:2720\nerror: dlls/ntdll/unix/signal_x86_64.c: patch does not apply\nContext reduced to (2/2) to apply fragment at 4922"
+        "diagnostic": "error: patch failed: dlls/ntdll/unix/signal_x86_64.c:2720\nerror: dlls/ntdll/unix/signal_x86_64.c: patch does not apply\nContext reduced to (2/2) to apply fragment at 4922"
       }
     ],
     "wine-dwproton/misc": [
@@ -594,7 +594,7 @@
   "input_sha256": {
     "port/0001-ntdll-rosetta-long-nop-and-privinstr-upstream.patch": "f631da5736064bcacf830db423ed8309ed425ee1fc9c8138a6eee890e0768a5b",
     "port/0002-ntdll-rosetta-emulate-xgetbv-upstream.patch": "53edc082569b0a516270497b7a72316cc63b6ff07fafe95647e9301d9644371b",
-    "port/0003-ntdll-rosetta-crossover-workarounds-upstream.patch": "7781e86f8bee5256ff890da64f4377604026bc30d796884ea0f4d236bf2f87bc",
+    "port/0003-ntdll-rosetta-crossover-workarounds-upstream.patch": "ef96191633e94983ab402ecf61a4c9384757d3fe40220f1df38adf31acce5073",
     "src/Endfield_FineWine/patches/stage2-dwproton/misc/0008-wintrust-Prevent-checking-if-winex11-winewayland-are.patch": "28dbb022538cadddd8c4482d001f5a9c18b8b01eda18f6afa107edbb92edb8fa",
     "src/Endfield_FineWine/patches/stage2-dwproton/misc/0009-HACK-kernel32-Spoof-GetProcAddress-of-KiUserApcDispa.patch": "6abcce3073e067fa6c212ce6c8d46706207874e3369dab64f2fedac41c801ad1",
     "src/Endfield_FineWine/patches/stage2-dwproton/misc/0010-HACK-kernel32-Lock-GetProcAddress-hack-to-when-neede.patch": "13adb8a4930df870399b75f03a7dcaedbed3b8c48db7d7951d4c7ad15b147dfd",

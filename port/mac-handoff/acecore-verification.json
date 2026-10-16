@@ -1,8 +1,8 @@
 {
   "wine_rev": "455e3509b98a6919fd4ad1def4803e08c41c03b2",
   "finewine_rev": "cc4cefa60a8236ad4adb3716f4faa2c6c8f48981",
-  "expected_tree": "f9155804df3032d0848730c914e461281326db21",
-  "result_tree": "f9155804df3032d0848730c914e461281326db21",
+  "expected_tree": "171c0221269a7e57af9d2739b1696ec4dcb63c18",
+  "result_tree": "171c0221269a7e57af9d2739b1696ec4dcb63c18",
   "ok": true,
   "series": [
     "port/0001-ntdll-rosetta-long-nop-and-privinstr-upstream.patch",
@@ -25,7 +25,7 @@
   "input_sha256": {
     "port/0001-ntdll-rosetta-long-nop-and-privinstr-upstream.patch": "f631da5736064bcacf830db423ed8309ed425ee1fc9c8138a6eee890e0768a5b",
     "port/0002-ntdll-rosetta-emulate-xgetbv-upstream.patch": "53edc082569b0a516270497b7a72316cc63b6ff07fafe95647e9301d9644371b",
-    "port/0003-ntdll-rosetta-crossover-workarounds-upstream.patch": "7781e86f8bee5256ff890da64f4377604026bc30d796884ea0f4d236bf2f87bc",
+    "port/0003-ntdll-rosetta-crossover-workarounds-upstream.patch": "ef96191633e94983ab402ecf61a4c9384757d3fe40220f1df38adf31acce5073",
     "src/Endfield_FineWine/patches/stage2-dwproton/misc/0009-HACK-kernel32-Spoof-GetProcAddress-of-KiUserApcDispa.patch": "6abcce3073e067fa6c212ce6c8d46706207874e3369dab64f2fedac41c801ad1",
     "src/Endfield_FineWine/patches/stage2-dwproton/misc/0010-HACK-kernel32-Lock-GetProcAddress-hack-to-when-neede.patch": "13adb8a4930df870399b75f03a7dcaedbed3b8c48db7d7951d4c7ad15b147dfd",
     "src/Endfield_FineWine/patches/stage2-dwproton/misc/0011-ntdll-Implement-NtDelayExecution-relative-wait-using.patch": "d60ce1b3f7f208c2382ac782c76d6b1744af896c5692c7dac32c0b6491c6331d",
