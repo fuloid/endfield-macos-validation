@@ -152,6 +152,17 @@ class Run:
                 best = line.strip()
         return best, text
 
+    def launcher_state(self, clicker):
+        """'normal' if a full-size Games.exe window is shown, 'minimized' if only minimized
+        Games.exe windows remain, 'gone' if Games.exe has no visible window."""
+        code, text = self.wine_run([clicker, 'list'], timeout=60)
+        lines = [l for l in text.splitlines() if 'exe=Games.exe' in l]
+        for line in lines:
+            m = re.search(r'rect=(-?\d+),(-?\d+) (\d+)x(\d+)', line)
+            if 'state=minimized' not in line and m and int(m.group(3)) >= 400:
+                return 'normal'
+        return 'minimized' if any('state=minimized' in l for l in lines) else 'gone'
+
     def click(self, clicker, name):
         rx, ry = TARGETS[name]
         code, text = self.wine_run([clicker, 'click', 'Games.exe', rx, ry], timeout=60)
@@ -255,6 +266,23 @@ class Run:
         self.click(clicker, 'play')
         self.shot('after-play')
 
+        # The launcher minimizes (or hides) itself when it hands off to the game: a strong
+        # early sign that Play registered and Endfield.exe is starting.
+        played = self.t()
+        self.report['launcher_after_play'] = 'normal'
+        while self.t() - played < 30:
+            time.sleep(3)
+            state = self.launcher_state(clicker)
+            if state != 'normal':
+                self.report['launcher_after_play'] = state
+                self.report['launcher_minimized_after_s'] = round(self.t() - played, 1)
+                self.note(f'launcher {state} {self.t() - played:.0f}s after Play: '
+                          'Endfield is probably starting')
+                self.shot('launcher-minimized')
+                break
+        else:
+            self.note('launcher still shown 30s after Play: the click may not have started the game')
+
         seen_game = seen_handler = None
         handler_since = None
         game_gone_after = None
@@ -294,11 +322,16 @@ class Run:
             return
         self.report['verdict'] = 'game did not reach Unity' if seen_game else 'game did not start'
         reasons = []
-        if not seen_game:
-            reasons.append('Endfield.exe never appeared after clicking Play: the click may not have '
-                           'registered (see screens/after-*.png and clicks in game.json), the launcher '
-                           'may have asked to log in / update / repair the trimmed install, or it '
-                           'refused to start the game')
+        minimized = self.report.get('launcher_after_play') in ('minimized', 'gone')
+        if not seen_game and minimized:
+            reasons.append('the launcher minimized after Play (so it tried to start the game), but '
+                           'Endfield.exe never showed up in the process list: it probably exited or '
+                           'crashed right away (check wine logs for the Endfield.exe process)')
+        elif not seen_game:
+            reasons.append('Endfield.exe never appeared and the launcher stayed open after clicking '
+                           'Play: the click may not have registered (see screens/after-*.png and '
+                           'clicks in game.json), or the launcher asked to log in / update / repair '
+                           'the trimmed install, or refused to start the game')
         if self.counts['bugcheck_wace_65636157']:
             reasons.append('ACE-CORE entry check failed (KeBugCheckEx 65636157)')
         if self.counts['unhandled_exception']:
@@ -339,6 +372,9 @@ class Run:
         lines += [f'- free memory at start: {self.report.get("free_memory_gb_at_start")} GB',
                   f'- lsass.exe running before launch: {self.report.get("lsass_running_before_launch")}',
                   f'- launcher window: `{self.report.get("launcher_window")}`',
+                  f'- launcher after Play: {self.report.get("launcher_after_play")}'
+                  + (f' (after {self.report["launcher_minimized_after_s"]} s)'
+                     if self.report.get('launcher_minimized_after_s') is not None else ''),
                   f'- Endfield.exe started at: {self.report.get("endfield_started_at")} s',
                   f'- UnityCrashHandler64.exe started at: {self.report.get("crash_handler_started_at")} s',
                   '', '| marker | count | first |', '|---|---|---|']
@@ -347,7 +383,8 @@ class Run:
             lines.append(f'| {k} | {v["count"]} | {first} |')
         if os.environ.get('CATBOX_SCREENSHOTS') == '1':
             screens = self.report.get('screens', {})
-            later = next((k for k in ('unity-30s', 'unity-started', 'endfield-started', 'after-play')
+            later = next((k for k in ('unity-30s', 'unity-started', 'endfield-started',
+                                      'launcher-minimized', 'after-play')
                           if k in screens), None)
             picks = [('Launcher ready (after fit)', 'launcher-ready')]
             if later:

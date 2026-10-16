@@ -45,8 +45,9 @@ static BOOL CALLBACK list_proc(HWND hwnd, LPARAM lp)
     GetWindowRect(hwnd, &r);
     GetWindowThreadProcessId(hwnd, &pid);
     process_name(hwnd, exe, MAX_PATH);
-    wprintf(L"%p pid=%lu exe=%ls rect=%ld,%ld %ldx%ld class=%ls title=%ls\n", hwnd, pid, exe,
-            r.left, r.top, r.right - r.left, r.bottom - r.top, cls, title);
+    wprintf(L"%p pid=%lu exe=%ls rect=%ld,%ld %ldx%ld state=%ls class=%ls title=%ls\n", hwnd, pid,
+            exe, r.left, r.top, r.right - r.left, r.bottom - r.top,
+            IsIconic(hwnd) ? L"minimized" : L"normal", cls, title);
     return TRUE;
 }
 
