@@ -38,7 +38,7 @@ Run `python port/verify_port.py` from the original Windows workspace to reproduc
 
 FineWine `cc4cefa` (2026-10-15) adds `patches/stage2-dwproton/ace-core/0001`–`0019` for the game's new `ACE-CORE*.sys` driver. The handoff above was pinned to `3d3fbec` and had none of them. With the current game it would hit `KeBugCheckEx 0x65636157` at `DriverEntry` and not launch. FineWine reports the game as launching and playable with `0001`–`0016`. A remaining `0x65636154` ("Tace") watchdog bugcheck is described there as cosmetic.
 
-Upstream-11.19 port (`acecore/patches`, gated by `acecore/verify_acecore.py`; applied on top of the six base patches it reproduces tree `c0e838c9`):
+Upstream-11.19 port (`acecore/patches`, gated by `acecore/verify_acecore.py`; applied on top of the six base patches it reproduces tree `f9155804`):
 
 | FineWine patch | Port |
 |---|---|
