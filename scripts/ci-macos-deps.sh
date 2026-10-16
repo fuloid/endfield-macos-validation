@@ -37,7 +37,7 @@ intel_brew install --force-bottle freetype gnutls molten-vk
 for formula in freetype gnutls molten-vk; do
     intel_brew list --versions "$formula"
 done
-lipo -verify_arch x86_64 /usr/local/opt/freetype/lib/libfreetype.dylib
-lipo -verify_arch x86_64 /usr/local/opt/gnutls/lib/libgnutls.dylib
-lipo -verify_arch x86_64 /usr/local/opt/molten-vk/lib/libMoltenVK.dylib
+lipo /usr/local/opt/freetype/lib/libfreetype.dylib -verify_arch x86_64
+lipo /usr/local/opt/gnutls/lib/libgnutls.dylib -verify_arch x86_64
+lipo /usr/local/opt/molten-vk/lib/libMoltenVK.dylib -verify_arch x86_64
 df -h "$RUNNER_TEMP"

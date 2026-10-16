@@ -50,7 +50,7 @@ configure() {
     local dylib
     for dylib in "$freetype_prefix/lib/libfreetype.dylib" "$gnutls_prefix/lib/libgnutls.dylib" "$mvk_prefix/lib/libMoltenVK.dylib"; do
         [ -f "$dylib" ] || die "Missing runtime library: $dylib"
-        lipo -verify_arch x86_64 "$dylib"
+        lipo "$dylib" -verify_arch x86_64
     done
     export PATH="$bison_prefix/bin:$("$TOOL_BREW" --prefix)/bin:/usr/local/bin:$PATH"
     export PKG_CONFIG_LIBDIR="$freetype_prefix/lib/pkgconfig:$gnutls_prefix/lib/pkgconfig:/usr/local/lib/pkgconfig:/usr/local/share/pkgconfig"
