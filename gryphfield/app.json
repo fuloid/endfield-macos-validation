@@ -1,0 +1,33 @@
+{
+    "$schema": "https://schema.native-sdk.dev/app/v1.json",
+    "id": "dev.native_sdk.gryphfield",
+    "name": "gryphfield",
+    "display_name": "Gryphfield",
+    "description": "A native launcher for Endfield on Apple Silicon Macs.",
+    "version": "0.1.0",
+    "icons": ["assets/icon.png"],
+    "platforms": ["macos"],
+    "permissions": ["view", "command"],
+    "capabilities": ["native_views", "gpu_surfaces", "reveal_path"],
+    "shell": {
+        "windows": [
+            {
+                "label": "main",
+                "title": "Gryphfield",
+                "width": 760,
+                "height": 600,
+                "views": [
+                    { "label": "main-canvas", "kind": "gpu_surface", "fill": true, "role": "Gryphfield launcher", "accessibility_label": "Gryphfield", "gpu_backend": "metal", "gpu_pixel_format": "bgra8_unorm", "gpu_present_mode": "timer", "gpu_alpha_mode": "opaque", "gpu_color_space": "srgb", "gpu_vsync": true }
+                ]
+            }
+        ]
+    },
+    "security": {
+        "navigation": {
+            "allowed_origins": ["zero://app", "zero://inline"],
+            "external_links": { "action": "deny" }
+        }
+    },
+    "web_engine": "system",
+    "cef": { "dir": "third_party/cef/macos", "auto_install": false }
+}

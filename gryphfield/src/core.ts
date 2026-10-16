@@ -1,0 +1,254 @@
+import { Cmd, Sub, asciiBytes } from "@native-sdk/core";
+import { applyTextInputEvent, type TextInputEvent, type TextEditState } from "@native-sdk/core/text";
+import { diagnosticsDiagnose, engineParse, settingsLoad, settingsSave } from "@native-sdk/services";
+import type { DiagnosticResult, EngineEvent, SettingsResult } from "./shared.ts";
+
+export type Phase = "boot" | "checking" | "setup" | "ready" | "running" | "failure";
+export type Action = "none" | "status" | "setup" | "gryphlink" | "direct";
+export type Modal = "none" | "settings" | "failure" | "uninstall1" | "uninstall2" | "reset1" | "reset2";
+export type Graphics = "dxmt" | "wined3d" | "vulkan";
+
+export interface Model {
+  readonly phase: Phase;
+  readonly action: Action;
+  readonly modal: Modal;
+  readonly mock: boolean;
+  readonly runner: Uint8Array;
+  readonly script: Uint8Array;
+  readonly doneOk: boolean;
+  readonly doneReceived: boolean;
+  readonly processExited: boolean;
+  readonly rosetta: boolean;
+  readonly prefixReady: boolean;
+  readonly launcherReady: boolean;
+  readonly gameReady: boolean;
+  readonly wineRunning: boolean;
+  readonly launcherRunning: boolean;
+  readonly gameRunning: boolean;
+  readonly unityStable: boolean;
+  readonly graphics: Graphics;
+  readonly engineVersion: Uint8Array;
+  readonly prefixPath: Uint8Array;
+  readonly launcherPath: Uint8Array;
+  readonly gamePath: Uint8Array;
+  readonly winePath: Uint8Array;
+  readonly logPath: Uint8Array;
+  readonly activity: Uint8Array;
+  readonly errorCode: Uint8Array;
+  readonly errorMessage: Uint8Array;
+  readonly exitCode: number;
+  readonly gameExitCode: number;
+  readonly launchFailed: boolean;
+  readonly diagnosticObserved: Uint8Array;
+  readonly diagnosticSource: Uint8Array;
+  readonly diagnosticExplanation: Uint8Array;
+  readonly diagnosticNextStep: Uint8Array;
+  readonly argsEdit: TextEditState;
+  readonly debugLogging: boolean;
+  readonly rosettaAvx: boolean;
+  readonly settingsSaved: boolean;
+  readonly settingsBusy: boolean;
+  readonly controlBusy: boolean;
+  readonly keepGameOnReset: boolean;
+}
+
+export type Msg =
+  | { readonly kind: "boot"; readonly at: number }
+  | { readonly kind: "enable_mock" }
+  | { readonly kind: "refresh" }
+  | { readonly kind: "setup" }
+  | { readonly kind: "run_launcher" }
+  | { readonly kind: "run_direct" }
+  | { readonly kind: "line"; readonly bytes: Uint8Array }
+  | { readonly kind: "exited"; readonly code: number }
+  | { readonly kind: "settle"; readonly at: number }
+  | { readonly kind: "spawn_failed"; readonly reason: Uint8Array }
+  | { readonly kind: "parsed"; readonly result: EngineEvent }
+  | { readonly kind: "parse_failed"; readonly reason: Uint8Array }
+  | { readonly kind: "control_line"; readonly bytes: Uint8Array }
+  | { readonly kind: "control_exited"; readonly code: number }
+  | { readonly kind: "control_failed"; readonly reason: Uint8Array }
+  | { readonly kind: "control_parsed"; readonly result: EngineEvent }
+  | { readonly kind: "stop_game" }
+  | { readonly kind: "stop_wine" }
+  | { readonly kind: "kill_wine" }
+  | { readonly kind: "restart" }
+  | { readonly kind: "settings_open" }
+  | { readonly kind: "modal_close" }
+  | { readonly kind: "dxmt" }
+  | { readonly kind: "wined3d" }
+  | { readonly kind: "vulkan" }
+  | { readonly kind: "uninstall_ask" }
+  | { readonly kind: "uninstall_next" }
+  | { readonly kind: "uninstall_confirm" }
+  | { readonly kind: "reset_ask" }
+  | { readonly kind: "reset_next" }
+  | { readonly kind: "toggle_keep_game" }
+  | { readonly kind: "reset_confirm" }
+  | { readonly kind: "diagnosed"; readonly result: DiagnosticResult }
+  | { readonly kind: "diagnose_failed"; readonly reason: Uint8Array }
+  | { readonly kind: "settings_loaded"; readonly result: SettingsResult }
+  | { readonly kind: "settings_saved"; readonly result: SettingsResult }
+  | { readonly kind: "settings_failed"; readonly reason: Uint8Array }
+  | { readonly kind: "args_edit"; readonly edit: TextInputEvent }
+  | { readonly kind: "toggle_debug" }
+  | { readonly kind: "toggle_avx" }
+  | { readonly kind: "save_settings" }
+  | { readonly kind: "show_prefix" }
+  | { readonly kind: "show_launcher" }
+  | { readonly kind: "show_game" }
+  | { readonly kind: "show_wine" }
+  | { readonly kind: "show_log" };
+
+export const viewUnbound = ["boot", "enable_mock", "line", "exited", "settle", "spawn_failed", "parsed", "parse_failed", "control_line", "control_exited", "control_failed", "control_parsed", "diagnosed", "diagnose_failed", "settings_loaded", "settings_saved", "settings_failed"] as const;
+
+export function initialModel(): Model {
+  return {
+    phase: "boot", action: "none", modal: "none", mock: false, doneOk: false, doneReceived: false, processExited: false,
+    runner: asciiBytes("/bin/bash"), script: asciiBytes("/Applications/Gryphfield.app/Contents/Resources/engine/bin/gryphfield-engine"),
+    rosetta: false, prefixReady: false, launcherReady: false, gameReady: false,
+    wineRunning: false, launcherRunning: false, gameRunning: false, unityStable: false,
+    graphics: "dxmt", engineVersion: asciiBytes(""), prefixPath: asciiBytes(""),
+    launcherPath: asciiBytes(""), gamePath: asciiBytes(""), winePath: asciiBytes("/Applications/Gryphfield.app/Contents/Resources/engine/wine"), logPath: asciiBytes(""),
+    activity: asciiBytes("Checking bundled engine..."), errorCode: asciiBytes(""),
+    errorMessage: asciiBytes(""), exitCode: -1, gameExitCode: -1, launchFailed: false,
+    diagnosticObserved: asciiBytes(""), diagnosticSource: asciiBytes(""), diagnosticExplanation: asciiBytes(""), diagnosticNextStep: asciiBytes(""),
+    argsEdit: { text: asciiBytes(""), selection: { anchor: 0, focus: 0 }, composition: null },
+    debugLogging: false, rosettaAvx: true, settingsSaved: true, settingsBusy: false, controlBusy: false, keepGameOnReset: true,
+  };
+}
+
+export function ready(model: Model): boolean {
+  return model.rosetta && model.prefixReady && model.launcherReady;
+}
+export function canRunLauncher(model: Model): boolean {
+  return ready(model) && model.action === "none" && !model.controlBusy;
+}
+export function canRunDirect(model: Model): boolean {
+  return canRunLauncher(model) && model.gameReady;
+}
+export function modeLabel(model: Model): Uint8Array {
+  if (model.graphics === "wined3d") return asciiBytes("WineD3D");
+  if (model.graphics === "vulkan") return asciiBytes("Vulkan");
+  return asciiBytes("DXMT");
+}
+export function hasLog(model: Model): boolean {
+  return model.logPath.length > 0;
+}
+function sameAscii(bytes: Uint8Array, value: Uint8Array): boolean {
+  if (bytes.length !== value.length) return false;
+  for (let i = 0; i < bytes.length; i += 1) if (bytes[i] !== value[i]) return false;
+  return true;
+}
+
+export function update(model: Model, msg: Msg): Model | [Model, Cmd<Msg>] {
+  switch (msg.kind) {
+    case "enable_mock":
+      return { ...model, mock: true, runner: asciiBytes("node"), script: asciiBytes("mock-engine.mjs"), phase: "boot", action: "none" };
+    case "boot":
+    case "refresh":
+      if (model.action !== "none") return model;
+      return [{ ...model, phase: "checking", action: "status", modal: "none", doneOk: false, doneReceived: false, processExited: false }, Cmd.spawn([model.runner, model.script, asciiBytes("status")], { key: "main", line: "line", exit: "exited", err: "spawn_failed" })];
+    case "setup":
+      if (model.action !== "none") return model;
+      return [{ ...model, phase: "setup", action: "setup", doneOk: false, doneReceived: false, processExited: false, activity: asciiBytes("Preparing Rosetta, Wine and GRYPHLINK...") }, Cmd.spawn([model.runner, model.script, asciiBytes("setup")], { key: "main", line: "line", exit: "exited", err: "spawn_failed" })];
+    case "run_launcher":
+      if (!canRunLauncher(model)) return model;
+      return [{ ...model, phase: "running", action: "gryphlink", doneOk: false, doneReceived: false, processExited: false, unityStable: false, launchFailed: false, gameExitCode: -1, logPath: asciiBytes(""), diagnosticObserved: asciiBytes(""), diagnosticSource: asciiBytes(""), diagnosticExplanation: asciiBytes(""), diagnosticNextStep: asciiBytes(""), activity: asciiBytes("Starting GRYPHLINK...") }, Cmd.spawn([model.runner, model.script, asciiBytes("run-gryphlink"), asciiBytes("--graphics"), asciiBytes(model.graphics)], { key: "main", line: "line", exit: "exited", err: "spawn_failed" })];
+    case "run_direct":
+      if (!canRunDirect(model)) return model;
+      return [{ ...model, phase: "running", action: "direct", doneOk: false, doneReceived: false, processExited: false, unityStable: false, launchFailed: false, gameExitCode: -1, logPath: asciiBytes(""), diagnosticObserved: asciiBytes(""), diagnosticSource: asciiBytes(""), diagnosticExplanation: asciiBytes(""), diagnosticNextStep: asciiBytes(""), activity: asciiBytes("Starting Endfield directly...") }, Cmd.spawn([model.runner, model.script, asciiBytes("run-direct"), asciiBytes("--graphics"), asciiBytes(model.graphics)], { key: "main", line: "line", exit: "exited", err: "spawn_failed" })];
+    case "line":
+      return [model, engineParse({ line: msg.bytes }, { ok: "parsed", err: "parse_failed" })];
+    case "control_line":
+      return [model, engineParse({ line: msg.bytes }, { ok: "control_parsed", err: "parse_failed" })];
+    case "parsed": {
+      const e = msg.result;
+      if (e.event === "status") return [{ ...model, rosetta: e.rosetta, prefixReady: e.prefixReady, launcherReady: e.gryphlinkInstalled, gameReady: e.gameInstalled, wineRunning: e.wineserverRunning, launcherRunning: e.gryphlinkRunning, gameRunning: e.endfieldRunning, engineVersion: e.engineVersion, prefixPath: e.prefixPath, launcherPath: e.gryphlinkPath, gamePath: e.gamePath }, settingsLoad({ prefixPath: e.prefixPath }, { ok: "settings_loaded", err: "settings_failed" })];
+      if (e.event === "step") return { ...model, activity: e.message };
+      if (e.event === "launcher_started") return { ...model, wineRunning: true, launcherRunning: true, activity: asciiBytes("GRYPHLINK started") };
+      if (e.event === "launcher_minimized") return { ...model, activity: asciiBytes("GRYPHLINK handed off to Endfield") };
+      if (e.event === "game_started") return { ...model, wineRunning: true, gameRunning: true, activity: asciiBytes("Endfield started") };
+      if (e.event === "unity_started") return { ...model, activity: asciiBytes("Unity appeared; checking stability...") };
+      if (e.event === "unity_stable") return { ...model, unityStable: true, activity: asciiBytes("Unity stayed alive for 30 seconds") };
+      if (e.event === "game_exited") return { ...model, gameRunning: false, gameExitCode: e.exitCode, logPath: e.logPath.length ? e.logPath : model.logPath };
+      if (e.event === "failed") return { ...model, launchFailed: true, logPath: e.logPath, activity: asciiBytes("Launch failed") };
+      if (e.event === "done") return [{ ...model, doneOk: e.ok, doneReceived: true, errorCode: e.errorCode, errorMessage: e.message }, Cmd.delay("settle", 1, "settle")];
+      return model;
+    }
+    case "exited":
+      return [{ ...model, processExited: true, exitCode: msg.code }, Cmd.delay("settle", 1000, "settle")];
+    case "settle":
+      if (!model.processExited) return model;
+      if (model.exitCode !== 0 || !model.doneReceived || !model.doneOk || model.launchFailed || model.gameExitCode > 0) {
+        const failed = { ...model, phase: "failure" as Phase, action: "none" as Action, modal: "failure" as Modal, errorMessage: model.errorMessage.length ? model.errorMessage : asciiBytes("Engine ended without a successful done event") };
+        if (model.action === "direct" || model.action === "gryphlink") return [failed, diagnosticsDiagnose({ logPath: model.logPath, gamePath: model.gamePath, prefixPath: model.prefixPath, exitCode: model.gameExitCode }, { ok: "diagnosed", err: "diagnose_failed" })];
+        return failed;
+      }
+      if (model.action === "setup") return [{ ...model, phase: "checking", action: "status", doneOk: false, doneReceived: false, processExited: false }, Cmd.spawn([model.runner, model.script, asciiBytes("status")], { key: "main", line: "line", exit: "exited", err: "spawn_failed" })];
+      if (model.action === "status") return { ...model, phase: ready(model) ? "ready" : "setup", action: "none", activity: ready(model) ? asciiBytes("Ready to launch") : asciiBytes("First-run setup is needed") };
+      return [{ ...model, phase: "checking", action: "status", doneOk: false, doneReceived: false, processExited: false, launcherRunning: false, gameRunning: false, activity: model.unityStable ? asciiBytes("Game session ended") : asciiBytes("Launcher session ended") }, Cmd.spawn([model.runner, model.script, asciiBytes("status")], { key: "main", line: "line", exit: "exited", err: "spawn_failed" })];
+    case "spawn_failed":
+      return { ...model, phase: "failure", action: "none", modal: "failure", errorCode: asciiBytes("ENGINE_UNAVAILABLE"), errorMessage: model.mock ? asciiBytes("Development mock could not start.") : asciiBytes("Bundled engine unavailable. Put Gryphfield.app in Applications and keep its original name.") };
+    case "parse_failed":
+      return { ...model, phase: "failure", modal: "failure", errorCode: asciiBytes("ENGINE_PROTOCOL"), errorMessage: msg.reason };
+    case "control_parsed":
+      return msg.result.event === "done" && !msg.result.ok ? { ...model, modal: "failure", errorCode: msg.result.errorCode, errorMessage: msg.result.message } : model;
+    case "control_exited":
+      if (msg.code !== 0) return { ...model, controlBusy: false, modal: "failure", errorCode: asciiBytes("CONTROL_FAILED"), errorMessage: asciiBytes("The control command failed") };
+      if (model.action !== "none") return model;
+      return [{ ...model, controlBusy: false, phase: "checking", action: "status", doneOk: false, doneReceived: false, processExited: false }, Cmd.spawn([model.runner, model.script, asciiBytes("status")], { key: "main", line: "line", exit: "exited", err: "spawn_failed" })];
+    case "control_failed":
+      return { ...model, controlBusy: false, modal: "failure", errorCode: asciiBytes("CONTROL_FAILED"), errorMessage: msg.reason };
+    case "stop_game": if (model.controlBusy || !model.gameRunning) return model; return [{ ...model, controlBusy: true }, Cmd.spawn([model.runner, model.script, asciiBytes("stop-game")], { key: "control", line: "control_line", exit: "control_exited", err: "control_failed" })];
+    case "stop_wine": if (model.controlBusy || !model.wineRunning) return model; return [{ ...model, controlBusy: true }, Cmd.spawn([model.runner, model.script, asciiBytes("stop")], { key: "control", line: "control_line", exit: "control_exited", err: "control_failed" })];
+    case "kill_wine": if (model.controlBusy || !model.wineRunning) return model; return [{ ...model, controlBusy: true }, Cmd.spawn([model.runner, model.script, asciiBytes("kill")], { key: "control", line: "control_line", exit: "control_exited", err: "control_failed" })];
+    case "restart": if (model.controlBusy || !ready(model)) return model; return [{ ...model, controlBusy: true }, Cmd.spawn([model.runner, model.script, asciiBytes("restart")], { key: "control", line: "control_line", exit: "control_exited", err: "control_failed" })];
+    case "settings_open": return { ...model, modal: "settings" };
+    case "modal_close":
+      if (model.settingsBusy) return model;
+      if (model.modal === "settings" && !model.settingsSaved) return [{ ...model, modal: "none" }, settingsLoad({ prefixPath: model.prefixPath }, { ok: "settings_loaded", err: "settings_failed" })];
+      return { ...model, modal: "none" };
+    case "dxmt": return { ...model, graphics: "dxmt", settingsSaved: false };
+    case "wined3d": return { ...model, graphics: "wined3d", settingsSaved: false };
+    case "vulkan": return { ...model, graphics: "vulkan", settingsSaved: false };
+    case "uninstall_ask": return model.gameReady && !model.wineRunning && model.action === "none" && !model.controlBusy ? { ...model, modal: "uninstall1" } : model;
+    case "uninstall_next": return { ...model, modal: "uninstall2" };
+    case "uninstall_confirm": if (model.controlBusy || model.modal !== "uninstall2" || model.wineRunning || model.action !== "none") return model; return [{ ...model, modal: "none", controlBusy: true }, Cmd.spawn([model.runner, model.script, asciiBytes("uninstall-game"), asciiBytes("--yes")], { key: "control", line: "control_line", exit: "control_exited", err: "control_failed" })];
+    case "reset_ask": return !model.wineRunning && model.action === "none" && !model.controlBusy ? { ...model, modal: "reset1" } : model;
+    case "reset_next": return { ...model, modal: "reset2" };
+    case "toggle_keep_game": return { ...model, keepGameOnReset: !model.keepGameOnReset };
+    case "reset_confirm":
+      if (model.controlBusy || model.modal !== "reset2" || model.wineRunning || model.action !== "none") return model;
+      if (model.keepGameOnReset) return [{ ...model, modal: "none", controlBusy: true }, Cmd.spawn([model.runner, model.script, asciiBytes("reset-prefix"), asciiBytes("--yes"), asciiBytes("--keep-game")], { key: "control", line: "control_line", exit: "control_exited", err: "control_failed" })];
+      return [{ ...model, modal: "none", controlBusy: true }, Cmd.spawn([model.runner, model.script, asciiBytes("reset-prefix"), asciiBytes("--yes")], { key: "control", line: "control_line", exit: "control_exited", err: "control_failed" })];
+    case "diagnosed": return { ...model, diagnosticObserved: msg.result.observed, diagnosticSource: msg.result.source, diagnosticExplanation: msg.result.explanation, diagnosticNextStep: msg.result.nextStep };
+    case "diagnose_failed": return { ...model, diagnosticExplanation: asciiBytes("Could not read the diagnostic logs."), diagnosticNextStep: msg.reason };
+    case "settings_loaded": {
+      const value = msg.result;
+      const text = value.extraArgs;
+      const size = text.length;
+      if (!(size >= 0) || size > 2048) return model;
+      const end = Math.trunc(size);
+      return { ...model, graphics: sameAscii(value.graphics, asciiBytes("vulkan")) ? "vulkan" : sameAscii(value.graphics, asciiBytes("wined3d")) ? "wined3d" : "dxmt", argsEdit: { text, selection: { anchor: end, focus: end }, composition: null }, debugLogging: value.debugLogging, rosettaAvx: value.rosettaAvx, settingsSaved: true };
+    }
+    case "settings_saved": return { ...model, settingsSaved: true, settingsBusy: false };
+    case "settings_failed": return { ...model, settingsBusy: false, modal: "failure", errorCode: asciiBytes("SETTINGS_ERROR"), errorMessage: msg.reason };
+    case "args_edit": {
+      const edit = applyTextInputEvent(model.argsEdit, msg.edit, 2048);
+      return edit ? { ...model, argsEdit: edit, settingsSaved: false } : model;
+    }
+    case "toggle_debug": return { ...model, debugLogging: !model.debugLogging, settingsSaved: false };
+    case "toggle_avx": return { ...model, rosettaAvx: !model.rosettaAvx, settingsSaved: false };
+    case "save_settings": if (model.settingsBusy) return model; return [{ ...model, settingsBusy: true }, settingsSave({ prefixPath: model.prefixPath, graphics: asciiBytes(model.graphics), extraArgs: model.argsEdit.text, debugLogging: model.debugLogging, rosettaAvx: model.rosettaAvx }, { ok: "settings_saved", err: "settings_failed" })];
+    case "show_prefix": return [model, Cmd.revealPath(model.prefixPath)];
+    case "show_launcher": return [model, Cmd.revealPath(model.launcherPath)];
+    case "show_game": return [model, Cmd.revealPath(model.gamePath)];
+    case "show_wine": return [model, Cmd.revealPath(model.winePath)];
+    case "show_log": return [model, Cmd.revealPath(model.logPath)];
+  }
+}
+
+export function subscriptions(model: Model): Sub<Msg> {
+  return model.phase === "boot" ? Sub.timer("boot", 100, "boot") : Sub.none;
+}

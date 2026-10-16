@@ -1,0 +1,7 @@
+.native/
+zig-out/
+.zig-cache/
+node_modules/
+.mock-state.json
+.mock-logs/
+.mock-data/

@@ -1,10 +1,11 @@
-# Only the audited handoff and CI tooling belong in this repository.
+# Keep the audited handoff, CI tooling, and Gryphfield UI in this repository.
 /*
 !/.gitignore
 !/.gitattributes
 !/.github/
 !/README.md
 !/scripts/
+!/gryphfield/
 !/port/
 /port/*
 !/port/mac-handoff/
