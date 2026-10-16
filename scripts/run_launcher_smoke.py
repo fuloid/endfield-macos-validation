@@ -45,6 +45,18 @@ MARKERS = {k: re.compile(v) for k, v in MARKERS.items()}
 UNITY_MARKERS = ['Initialize engine version', 'Direct3D:', 'GfxDevice', 'il2cpp', 'Crash!!!']
 
 
+def catbox(path):
+    """Upload a screenshot to catbox.moe (public, anonymous) and return its URL, or None."""
+    try:
+        r = subprocess.run(['curl', '-fsS', '--max-time', '60', '-F', 'reqtype=fileupload',
+                            '-F', f'fileToUpload=@{path}', 'https://catbox.moe/user/api.php'],
+                           capture_output=True, text=True, timeout=90)
+        url = r.stdout.strip()
+        return url if r.returncode == 0 and url.startswith('https://') else None
+    except Exception:
+        return None
+
+
 def free_memory():
     """Free + inactive + speculative + purgeable pages, in bytes (memory macOS can hand out)."""
     text = subprocess.run(['vm_stat'], capture_output=True, text=True).stdout
@@ -90,8 +102,10 @@ class Run:
         self.report['steps'].append(f'{self.t()}s {text}')
 
     def shot(self, name):
-        subprocess.run(['screencapture', '-x', str(self.out / 'screens' / f'{int(self.t()):04d}-{name}.png')],
-                       capture_output=True)
+        path = self.out / 'screens' / f'{int(self.t()):04d}-{name}.png'
+        subprocess.run(['screencapture', '-x', str(path)], capture_output=True)
+        self.report.setdefault('screens', {})[name] = str(path)
+        return path
 
     def wine_run(self, args, timeout=120, quiet=True):
         try:
@@ -122,10 +136,10 @@ class Run:
                 self.tail.append(line)
 
     def clicker(self):
-        bundled = self.root / 'launcher_click.exe'
-        if bundled.is_file():
-            return bundled
-        return self.args.clicker
+        # prefer the clicker built from this repo's source (has 'fit'); fall back to the sample's copy
+        if self.args.clicker and self.args.clicker.is_file():
+            return self.args.clicker
+        return self.root / 'launcher_click.exe'
 
     def launcher_window(self, clicker):
         code, text = self.wine_run([clicker, 'list'], timeout=60)
@@ -228,6 +242,11 @@ class Run:
         self.report['launcher_window'] = window
         self.note(f'launcher window: {window}')
         time.sleep(args.ui_settle)
+        # the launcher does not shrink below 1312x754; move it (like dragging) so Play is on screen
+        code, text = self.wine_run([clicker, 'fit', 'Games.exe'], timeout=60)
+        self.report['fit'] = {'exit_code': code, 'output': text.strip()[-300:]}
+        self.note(f'fit Games.exe -> exit {code}: {text.strip()[-160:]}')
+        time.sleep(3)
         self.shot('launcher-ready')
 
         self.click(clicker, 'events')      # harmless check that clicks register in Wine
@@ -326,9 +345,27 @@ class Run:
         for k, v in self.report['markers'].items():
             first = (v['first'][1][:120].replace('|', '/') if v['first'] else '')
             lines.append(f'| {k} | {v["count"]} | {first} |')
+        if os.environ.get('CATBOX_SCREENSHOTS') == '1':
+            screens = self.report.get('screens', {})
+            later = next((k for k in ('unity-30s', 'unity-started', 'endfield-started', 'after-play')
+                          if k in screens), None)
+            picks = [('Launcher ready (after fit)', 'launcher-ready')]
+            if later:
+                picks.append(({'unity-30s': 'Unity running 30 s (UnityCrashHandler64 alive)'}
+                              .get(later, f'Latest state: {later}'), later))
+            elif screens:
+                picks.append(('Latest screenshot', list(screens)[-1]))
+            images = {}
+            for title, key in picks:
+                if key in screens and Path(screens[key]).is_file():
+                    url = catbox(screens[key])
+                    images[key] = url
+                    lines += ['', f'### {title}', f'![{key}]({url})' if url else '_(catbox upload failed)_']
+            self.report['catbox'] = images
         lines += ['', 'This job never fails on launcher/game problems; see the endfield-game-smoke artifact.']
         summary = '\n'.join(lines) + '\n'
         (self.out / 'summary.md').write_text(summary)
+        (self.out / 'game.json').write_text(json.dumps(self.report, indent=2) + '\n')
         print(summary)
         if os.environ.get('GITHUB_STEP_SUMMARY'):
             with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:

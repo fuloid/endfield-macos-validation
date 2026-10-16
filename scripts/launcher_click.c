@@ -4,6 +4,7 @@
  *
  *   launcher_click.exe list
  *   launcher_click.exe click <process-exe-name> <rel-x> <rel-y> [--post|--cursor]
+ *   launcher_click.exe fit <process-exe-name>   (move, not resize, so the window ends on screen)
  * Fractions include the window's shadow margins. --post avoids focus/cursor changes;
  * --cursor uses SetCursorPos instead of an absolute SendInput move.
  *
@@ -169,10 +170,38 @@ int wmain(int argc, WCHAR **argv)
         EnumWindows(list_proc, 0);
         return 0;
     }
+    if (argc == 3 && !wcscmp(argv[1], L"fit")) {
+        /* Move (never resize) the window so its right/bottom edges are on screen, like a user
+         * dragging a window that is larger than the display (e.g. 1024x768 CI desktops). */
+        struct find f = { argv[2], NULL, 0 };
+        EnumWindows(find_proc, (LPARAM)&f);
+        if (!f.best) {
+            fwprintf(stderr, L"no visible window for %ls\n", argv[2]);
+            return 1;
+        }
+        RECT r;
+        if (!GetWindowRect(f.best, &r)) return 1;
+        int sx = GetSystemMetrics(SM_XVIRTUALSCREEN), sy = GetSystemMetrics(SM_YVIRTUALSCREEN);
+        int sw = GetSystemMetrics(SM_CXVIRTUALSCREEN), sh = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+        LONG w = r.right - r.left, h = r.bottom - r.top, x = r.left, y = r.top;
+        if (x + w > sx + sw) x = sx + sw - w;
+        if (y + h > sy + sh) y = sy + sh - h;
+        if (w <= sw && x < sx) x = sx;
+        if (h <= sh && y < sy) y = sy;
+        if (!SetWindowPos(f.best, NULL, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE)) {
+            fwprintf(stderr, L"SetWindowPos failed: %lu\n", GetLastError());
+            return 1;
+        }
+        Sleep(300);
+        GetWindowRect(f.best, &r);
+        wprintf(L"fit window=%ld,%ld %ldx%ld virtual=%d,%d %dx%d\n", r.left, r.top,
+                r.right - r.left, r.bottom - r.top, sx, sy, sw, sh);
+        return 0;
+    }
     int post = argc == 6 && !wcscmp(argv[5], L"--post");
     int cursor = argc == 6 && !wcscmp(argv[5], L"--cursor");
     if ((argc != 5 && !post && !cursor) || wcscmp(argv[1], L"click")) {
-        fwprintf(stderr, L"usage: list | click <exe> <rel-x> <rel-y> [--post|--cursor]\n");
+        fwprintf(stderr, L"usage: list | fit <exe> | click <exe> <rel-x> <rel-y> [--post|--cursor]\n");
         return 2;
     }
     double rx, ry;

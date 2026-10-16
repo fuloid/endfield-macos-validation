@@ -261,7 +261,8 @@ jobs:
             } | tee -a "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          python3 scripts/run_launcher_smoke.py --work "$WORK_DIR" --wine "$WORK_DIR/wine-install" \
+          # screenshots of the CI desktop are embedded in the summary via catbox.moe (public links)
+          CATBOX_SCREENSHOTS=1 python3 scripts/run_launcher_smoke.py --work "$WORK_DIR" --wine "$WORK_DIR/wine-install" \
             --game "$WORK_DIR/game" --clicker "$WORK_DIR/launcher_click.exe" || true
       - name: Upload Endfield test logs (no game files)
         if: always()
