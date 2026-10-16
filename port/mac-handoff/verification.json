@@ -1,0 +1,601 @@
+{
+  "snapshots": "port/audit/verify-cca2vcfg",
+  "commits": {
+    "wine-11.19": "455e3509b98a6919fd4ad1def4803e08c41c03b2",
+    "wine-11.0": "db11d0fe6a169c457e23d007e20404643d067aa8",
+    "valve": "3c1a3fef30942f5655bc7cfd0f4b76a411ea215d",
+    "wine-dwproton": "b585905ec92032840e924e4e2a88382523e92ed3",
+    "mvk": "db66022459ffb663aa2b50f6b018bc2e124f5edf",
+    "spvc": "6c09849fe88c48eaed08413aa022aaa136a3a057"
+  },
+  "series": {
+    "wine-11.19/rosetta": [
+      {
+        "patch": "port/0001-ntdll-rosetta-long-nop-and-privinstr-upstream.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "port/0002-ntdll-rosetta-emulate-xgetbv-upstream.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      }
+    ],
+    "wine-11.19/misc": [
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/misc/0008-wintrust-Prevent-checking-if-winex11-winewayland-are.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/misc/0009-HACK-kernel32-Spoof-GetProcAddress-of-KiUserApcDispa.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/misc/0010-HACK-kernel32-Lock-GetProcAddress-hack-to-when-neede.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/misc/0011-ntdll-Implement-NtDelayExecution-relative-wait-using.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      }
+    ],
+    "wine-11.19/kernel": [
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0001-ntoskrnl.exe-Implement-KeAcquireGuardedMutex.patch",
+        "context": "default",
+        "ok": false,
+        "diagnostic": "error: patch failed: dlls/ntoskrnl.exe/ntoskrnl.exe.spec:52\nerror: dlls/ntoskrnl.exe/ntoskrnl.exe.spec: patch does not apply\nerror: patch failed: dlls/ntoskrnl.exe/sync.c:439\nerror: dlls/ntoskrnl.exe/sync.c: patch does not apply"
+      }
+    ],
+    "wine-11.0/rosetta": [
+      {
+        "patch": "port/0001-ntdll-rosetta-long-nop-and-privinstr-upstream.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "port/0002-ntdll-rosetta-emulate-xgetbv-upstream.patch",
+        "context": "-C1",
+        "ok": true,
+        "diagnostic": "Context reduced to (1/1) to apply fragment at 2891"
+      }
+    ],
+    "wine-11.0/misc": [
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/misc/0008-wintrust-Prevent-checking-if-winex11-winewayland-are.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/misc/0009-HACK-kernel32-Spoof-GetProcAddress-of-KiUserApcDispa.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/misc/0010-HACK-kernel32-Lock-GetProcAddress-hack-to-when-neede.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/misc/0011-ntdll-Implement-NtDelayExecution-relative-wait-using.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      }
+    ],
+    "wine-11.0/kernel": [
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0001-ntoskrnl.exe-Implement-KeAcquireGuardedMutex.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0002-ntoskrnl.exe-Implement-KeReleaseGuardedMutex.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0003-ntoskrnl-Implement-PsGetProcessSessionId.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0004-ntoskrnl-Implement-PsGetProcessCreateTimeQuadPart.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0005-ntoskrnl-Implement-PsGetThreadProcess.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0006-ntoskrnl-Add-stub-for-KeRegisterBugCheckCallback.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0007-ntoskrnl-Add-stub-for-KeRegisterBugCheckReasonCallba.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0008-ntoskrnl-Add-stub-for-KeDeregisterBugCheckReasonCall.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0009-ntoskrnl-Add-semi-stub-for-MmGetVirtualForPhysical.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0010-ntoskrnl-Implement-PsGetProcessImageFileName.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0011-ntoskrnl-Implement-SeLocateProcessImageName.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0012-ntoskrnl-Implement-PsReferencePrimaryToken.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0013-ntoskrnl-Implement-PsGetContextThread.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0014-fixup-ntoskrnl-Fix-bugs-with-create_process_object.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0015-fixup-ntoskrnl-SeLocateProcessImageName.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0016-ntoskrnl-Add-stub-for-KeCapturePersistentThreadState.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0017-ntoskrnl-Implement-MmGetPhysicalMemoryRanges.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      }
+    ],
+    "valve/rosetta": [
+      {
+        "patch": "port/0001-ntdll-rosetta-long-nop-and-privinstr-upstream.patch",
+        "context": "-C1",
+        "ok": true,
+        "diagnostic": "Context reduced to (1/1) to apply fragment at 2334"
+      },
+      {
+        "patch": "port/0002-ntdll-rosetta-emulate-xgetbv-upstream.patch",
+        "context": "-C1",
+        "ok": true,
+        "diagnostic": "Context reduced to (1/1) to apply fragment at 3204"
+      }
+    ],
+    "valve/misc": [
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/misc/0008-wintrust-Prevent-checking-if-winex11-winewayland-are.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/misc/0009-HACK-kernel32-Spoof-GetProcAddress-of-KiUserApcDispa.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/misc/0010-HACK-kernel32-Lock-GetProcAddress-hack-to-when-neede.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/misc/0011-ntdll-Implement-NtDelayExecution-relative-wait-using.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      }
+    ],
+    "valve/kernel": [
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0001-ntoskrnl.exe-Implement-KeAcquireGuardedMutex.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0002-ntoskrnl.exe-Implement-KeReleaseGuardedMutex.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0003-ntoskrnl-Implement-PsGetProcessSessionId.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0004-ntoskrnl-Implement-PsGetProcessCreateTimeQuadPart.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0005-ntoskrnl-Implement-PsGetThreadProcess.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0006-ntoskrnl-Add-stub-for-KeRegisterBugCheckCallback.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0007-ntoskrnl-Add-stub-for-KeRegisterBugCheckReasonCallba.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0008-ntoskrnl-Add-stub-for-KeDeregisterBugCheckReasonCall.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0009-ntoskrnl-Add-semi-stub-for-MmGetVirtualForPhysical.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0010-ntoskrnl-Implement-PsGetProcessImageFileName.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0011-ntoskrnl-Implement-SeLocateProcessImageName.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0012-ntoskrnl-Implement-PsReferencePrimaryToken.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0013-ntoskrnl-Implement-PsGetContextThread.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0014-fixup-ntoskrnl-Fix-bugs-with-create_process_object.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0015-fixup-ntoskrnl-SeLocateProcessImageName.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0016-ntoskrnl-Add-stub-for-KeCapturePersistentThreadState.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0017-ntoskrnl-Implement-MmGetPhysicalMemoryRanges.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      }
+    ],
+    "wine-dwproton/rosetta": [
+      {
+        "patch": "port/0001-ntdll-rosetta-long-nop-and-privinstr-upstream.patch",
+        "context": "-C1",
+        "ok": true,
+        "diagnostic": "Context reduced to (1/1) to apply fragment at 2344"
+      },
+      {
+        "patch": "port/0002-ntdll-rosetta-emulate-xgetbv-upstream.patch",
+        "context": "-C1",
+        "ok": true,
+        "diagnostic": "Context reduced to (1/1) to apply fragment at 3214"
+      }
+    ],
+    "wine-dwproton/misc": [
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/misc/0008-wintrust-Prevent-checking-if-winex11-winewayland-are.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/misc/0009-HACK-kernel32-Spoof-GetProcAddress-of-KiUserApcDispa.patch",
+        "context": "default",
+        "ok": false,
+        "diagnostic": "error: patch failed: dlls/kernel32/module.c:262\nerror: dlls/kernel32/module.c: patch does not apply"
+      }
+    ],
+    "wine-dwproton/kernel": [
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0001-ntoskrnl.exe-Implement-KeAcquireGuardedMutex.patch",
+        "context": "default",
+        "ok": false,
+        "diagnostic": "error: patch failed: dlls/ntoskrnl.exe/ntoskrnl.exe.spec:52\nerror: dlls/ntoskrnl.exe/ntoskrnl.exe.spec: patch does not apply\nerror: patch failed: dlls/ntoskrnl.exe/sync.c:439\nerror: dlls/ntoskrnl.exe/sync.c: patch does not apply"
+      }
+    ],
+    "handoff/wine-11.19": [
+      {
+        "patch": "port/0001-ntdll-rosetta-long-nop-and-privinstr-upstream.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "port/0002-ntdll-rosetta-emulate-xgetbv-upstream.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/misc/0009-HACK-kernel32-Spoof-GetProcAddress-of-KiUserApcDispa.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/misc/0010-HACK-kernel32-Lock-GetProcAddress-hack-to-when-neede.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/stage2-dwproton/misc/0011-ntdll-Implement-NtDelayExecution-relative-wait-using.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      }
+    ],
+    "moltenvk": [
+      {
+        "patch": "src/Endfield_FineWine/patches/moltenvk/0001-reject-pipeline-caches-without-the-barrier-fix.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/moltenvk/0002-use-metal-hazard-tracking-instead-of-barrier-fences.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/moltenvk/0003-compile-shader-libraries-outside-the-pipeline-cache-lock.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/moltenvk/0004-defer-cached-shader-libraries-and-replay-recorded-pipelines.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/moltenvk/0005-make-vertex-positions-invariant.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/moltenvk/0006-reuse-resource-tracking-nodes.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      },
+      {
+        "patch": "src/Endfield_FineWine/patches/moltenvk/0007-don-t-hang-vkWaitForPresentKHR-on-a-stalled-present-completion.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      }
+    ],
+    "spirv-cross": [
+      {
+        "patch": "src/Endfield_FineWine/patches/moltenvk/spirv-cross/0001-msl-fence-device-scope-control-barriers.patch",
+        "context": "default",
+        "ok": true,
+        "diagnostic": ""
+      }
+    ]
+  },
+  "tests": {
+    "noptest": {
+      "extracted_sha256": "ff81c3bf76fe412d8925bc1c6e2c2702e81cab90db15c93454e8a93bc7af2d8a",
+      "old_extracted_matches": true,
+      "exit_code": 0,
+      "output": "ok   nop ecx (reg form, the Endfield one)    \r\nok   nop [rax]                               \r\nok   nop [rax+0]                             \r\nok   nop [rax+rax+0]                         \r\nok   66 nop [rax+rax+0]                      \r\nok   nop [rax+disp32]                        \r\nok   nop [rax+rax+disp32]                    \r\nok   66 2E nop (cs-prefixed, gcc padding)    \r\nok   nop [rip+disp32]                        \r\nok   nop [disp32] via SIB                    \r\nok   ud2 (must NOT skip)                     \r\nNOP checks: 4378, failures: 0\r\n"
+    },
+    "xgetbvtest": {
+      "extracted_sha256": "b8479f304de075c5d6ef8cb74a90f34e23e11482bbda36d7bedee13fd5a54ed4",
+      "old_extracted_matches": true,
+      "exit_code": 0,
+      "output": "ok   xgetbv ecx=0, pre-Sequoia -> 0x07\r\nok   xgetbv ecx=0, Sequoia -> 0xe7\r\nok   xgetbv rcx=0xffffffff00000000 (upper ignored) -> ok\r\nok   xgetbv ecx=1 -> not handled\r\nok   xsetbv 0F 01 D1 -> not handled\r\nok   ud2 -> not handled\r\nok   short read (2 bytes) -> not handled\r\nok   empty read -> not handled\r\nok   one-byte read -> not handled\r\nok   prefix is not emulated\r\nok   ecx=0xffffffff -> not handled\r\nXGETBV checks: 11, failures: 0\r\n"
+    },
+    "runtime_probe_windows_control": {
+      "exit_code": 0,
+      "output": "CPUID: OSXSAVE=1 AVX=1 AVX2=1\r\nPASS NOP form 1\r\nPASS NOP form 2\r\nPASS NOP form 3\r\nPASS XGETBV ecx=0, XCR0=0x1f (not an AVX-512 claim)\r\nPASS privileged instruction maps to c0000096\r\nPASS UD2 remains c000001d\r\nRuntime checks: 6, failures: 0\r\n",
+      "scope": "Native Windows control only. Must still run this executable under patched Wine/Rosetta."
+    }
+  },
+  "kernel_exports": {
+    "wine-11.19": {
+      "KeAcquireGuardedMutex": "@ stdcall -fastcall KeAcquireGuardedMutex(ptr)",
+      "KeAcquireGuardedMutexUnsafe": "@ stdcall -fastcall KeAcquireGuardedMutexUnsafe(ptr)",
+      "KeCapturePersistentThreadState": "@ stdcall KeCapturePersistentThreadState(ptr ptr long long long long long ptr)",
+      "KeDeregisterBugCheckReasonCallback": "@ stdcall KeDeregisterBugCheckReasonCallback(ptr)",
+      "KeRegisterBugCheckCallback": "@ stdcall KeRegisterBugCheckCallback(ptr ptr ptr long ptr)",
+      "KeRegisterBugCheckReasonCallback": "@ stdcall KeRegisterBugCheckReasonCallback(ptr ptr long ptr)",
+      "KeReleaseGuardedMutex": "@ stdcall -fastcall KeReleaseGuardedMutex(ptr)",
+      "KeReleaseGuardedMutexUnsafe": "@ stdcall -fastcall KeReleaseGuardedMutexUnsafe(ptr)",
+      "MmGetPhysicalMemoryRanges": "@ stdcall MmGetPhysicalMemoryRanges()",
+      "MmGetVirtualForPhysical": "@ stdcall MmGetVirtualForPhysical(int64)",
+      "PsGetContextThread": "@ stdcall PsGetContextThread(ptr ptr long)",
+      "PsGetProcessCreateTimeQuadPart": "@ stdcall PsGetProcessCreateTimeQuadPart(ptr)",
+      "PsGetProcessImageFileName": "@ stdcall PsGetProcessImageFileName(ptr)",
+      "PsGetProcessSessionId": "@ stdcall PsGetProcessSessionId(ptr)",
+      "PsGetThreadProcess": "@ stdcall PsGetThreadProcess(ptr) IoThreadToProcess",
+      "PsReferencePrimaryToken": "@ stdcall PsReferencePrimaryToken(ptr)"
+    },
+    "wine-11.0": {
+      "KeAcquireGuardedMutex": "@ stdcall KeAcquireGuardedMutex(ptr)",
+      "KeAcquireGuardedMutexUnsafe": "@ stdcall KeAcquireGuardedMutexUnsafe(ptr)",
+      "KeCapturePersistentThreadState": "@ stdcall KeCapturePersistentThreadState(ptr ptr long long long long long ptr)",
+      "KeDeregisterBugCheckReasonCallback": "@ stdcall KeDeregisterBugCheckReasonCallback(ptr)",
+      "KeRegisterBugCheckCallback": "@ stdcall KeRegisterBugCheckCallback(ptr ptr ptr long ptr)",
+      "KeRegisterBugCheckReasonCallback": "@ stdcall KeRegisterBugCheckReasonCallback(ptr ptr long ptr)",
+      "KeReleaseGuardedMutex": "@ stdcall KeReleaseGuardedMutex(ptr)",
+      "KeReleaseGuardedMutexUnsafe": "@ stdcall KeReleaseGuardedMutexUnsafe(ptr)",
+      "MmGetPhysicalMemoryRanges": "@ stdcall MmGetPhysicalMemoryRanges()",
+      "MmGetVirtualForPhysical": "@ stdcall MmGetVirtualForPhysical(int64)",
+      "PsGetContextThread": "@ stdcall PsGetContextThread(ptr ptr)",
+      "PsGetProcessCreateTimeQuadPart": "@ stdcall PsGetProcessCreateTimeQuadPart(ptr)",
+      "PsGetProcessImageFileName": "@ stdcall PsGetProcessImageFileName(ptr)",
+      "PsGetProcessSessionId": "@ stdcall PsGetProcessSessionId(ptr)",
+      "PsGetThreadProcess": "@ stdcall PsGetThreadProcess(ptr)",
+      "PsReferencePrimaryToken": "@ stdcall PsReferencePrimaryToken(ptr)"
+    },
+    "valve": {
+      "KeAcquireGuardedMutex": "@ stdcall KeAcquireGuardedMutex(ptr)",
+      "KeAcquireGuardedMutexUnsafe": "@ stdcall KeAcquireGuardedMutexUnsafe(ptr)",
+      "KeCapturePersistentThreadState": "@ stdcall KeCapturePersistentThreadState(ptr ptr long long long long long ptr)",
+      "KeDeregisterBugCheckReasonCallback": "@ stdcall KeDeregisterBugCheckReasonCallback(ptr)",
+      "KeRegisterBugCheckCallback": "@ stdcall KeRegisterBugCheckCallback(ptr ptr ptr long ptr)",
+      "KeRegisterBugCheckReasonCallback": "@ stdcall KeRegisterBugCheckReasonCallback(ptr ptr long ptr)",
+      "KeReleaseGuardedMutex": "@ stdcall KeReleaseGuardedMutex(ptr)",
+      "KeReleaseGuardedMutexUnsafe": "@ stdcall KeReleaseGuardedMutexUnsafe(ptr)",
+      "MmGetPhysicalMemoryRanges": "@ stdcall MmGetPhysicalMemoryRanges()",
+      "MmGetVirtualForPhysical": "@ stdcall MmGetVirtualForPhysical(int64)",
+      "PsGetContextThread": "@ stdcall PsGetContextThread(ptr ptr)",
+      "PsGetProcessCreateTimeQuadPart": "@ stdcall PsGetProcessCreateTimeQuadPart(ptr)",
+      "PsGetProcessImageFileName": "@ stdcall PsGetProcessImageFileName(ptr)",
+      "PsGetProcessSessionId": "@ stdcall PsGetProcessSessionId(ptr)",
+      "PsGetThreadProcess": "@ stdcall PsGetThreadProcess(ptr)",
+      "PsReferencePrimaryToken": "@ stdcall PsReferencePrimaryToken(ptr)"
+    },
+    "wine-dwproton": {
+      "KeAcquireGuardedMutex": "@ stdcall -fastcall KeAcquireGuardedMutex(ptr)",
+      "KeAcquireGuardedMutexUnsafe": "@ stdcall -fastcall KeAcquireGuardedMutexUnsafe(ptr)",
+      "KeCapturePersistentThreadState": "@ stdcall KeCapturePersistentThreadState(ptr ptr long long long long long ptr)",
+      "KeDeregisterBugCheckReasonCallback": "@ stdcall KeDeregisterBugCheckReasonCallback(ptr)",
+      "KeRegisterBugCheckCallback": "@ stdcall KeRegisterBugCheckCallback(ptr ptr ptr long ptr)",
+      "KeRegisterBugCheckReasonCallback": "@ stdcall KeRegisterBugCheckReasonCallback(ptr ptr long ptr)",
+      "KeReleaseGuardedMutex": "@ stdcall -fastcall KeReleaseGuardedMutex(ptr)",
+      "KeReleaseGuardedMutexUnsafe": "@ stdcall -fastcall KeReleaseGuardedMutexUnsafe(ptr)",
+      "MmGetPhysicalMemoryRanges": "@ stdcall MmGetPhysicalMemoryRanges()",
+      "MmGetVirtualForPhysical": "@ stdcall MmGetVirtualForPhysical(int64)",
+      "PsGetContextThread": "@ stdcall PsGetContextThread(ptr ptr long)",
+      "PsGetProcessCreateTimeQuadPart": "@ stdcall PsGetProcessCreateTimeQuadPart(ptr)",
+      "PsGetProcessImageFileName": "@ stdcall PsGetProcessImageFileName(ptr)",
+      "PsGetProcessSessionId": "@ stdcall PsGetProcessSessionId(ptr)",
+      "PsGetThreadProcess": "@ stdcall PsGetThreadProcess(ptr) IoThreadToProcess",
+      "PsReferencePrimaryToken": "@ stdcall PsReferencePrimaryToken(ptr)"
+    }
+  },
+  "scope": "Patch application and host helper tests; no Darwin build or Rosetta execution.",
+  "compiler": "gcc (Rev5, Built by MSYS2 project) 16.1.0",
+  "input_sha256": {
+    "port/0001-ntdll-rosetta-long-nop-and-privinstr-upstream.patch": "30ee217145fa2321d374e90c7c0cfa4dedb346f7a1a86ce98a11e569489af5ad",
+    "port/0002-ntdll-rosetta-emulate-xgetbv-upstream.patch": "89ae32ef29067c5c4b93917f4fd70c65476b2f8d5018a7881004ce3bbf23d01e",
+    "src/Endfield_FineWine/patches/stage2-dwproton/misc/0008-wintrust-Prevent-checking-if-winex11-winewayland-are.patch": "28dbb022538cadddd8c4482d001f5a9c18b8b01eda18f6afa107edbb92edb8fa",
+    "src/Endfield_FineWine/patches/stage2-dwproton/misc/0009-HACK-kernel32-Spoof-GetProcAddress-of-KiUserApcDispa.patch": "6abcce3073e067fa6c212ce6c8d46706207874e3369dab64f2fedac41c801ad1",
+    "src/Endfield_FineWine/patches/stage2-dwproton/misc/0010-HACK-kernel32-Lock-GetProcAddress-hack-to-when-neede.patch": "13adb8a4930df870399b75f03a7dcaedbed3b8c48db7d7951d4c7ad15b147dfd",
+    "src/Endfield_FineWine/patches/stage2-dwproton/misc/0011-ntdll-Implement-NtDelayExecution-relative-wait-using.patch": "d60ce1b3f7f208c2382ac782c76d6b1744af896c5692c7dac32c0b6491c6331d",
+    "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0001-ntoskrnl.exe-Implement-KeAcquireGuardedMutex.patch": "813511656aebf6431dc431bb05da4b0b09edc6f2c53ddc9611efcaef5d94686e",
+    "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0002-ntoskrnl.exe-Implement-KeReleaseGuardedMutex.patch": "9729ae27fb1353c418b1900c76ac1594e8bb88507df98bbe5840dd59a946d2d5",
+    "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0003-ntoskrnl-Implement-PsGetProcessSessionId.patch": "067c55027738274d6df5055489716318a4936c4734ea21f1e3ebbc8573faf5d9",
+    "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0004-ntoskrnl-Implement-PsGetProcessCreateTimeQuadPart.patch": "0e9a3c2b215fffd8bd353b1989693cb9da61cd6939f3b93ffcd110070f09a55a",
+    "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0005-ntoskrnl-Implement-PsGetThreadProcess.patch": "5bff511d3c21acc4f78a136b2ed976487add0dcdb1c0f5488584c0f7fc69ed46",
+    "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0006-ntoskrnl-Add-stub-for-KeRegisterBugCheckCallback.patch": "b62deaf4951caefa88261bd831212398f0dece311e08e659ddaae989ce01133b",
+    "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0007-ntoskrnl-Add-stub-for-KeRegisterBugCheckReasonCallba.patch": "ea7915a00d196f739733ce2a2c7c9b3dfed4ad41b825c501a8a08a6df631ea54",
+    "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0008-ntoskrnl-Add-stub-for-KeDeregisterBugCheckReasonCall.patch": "5ef253f56575d7dbc652035bc50f250aa6a3962376d77a0b382250824c0cac75",
+    "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0009-ntoskrnl-Add-semi-stub-for-MmGetVirtualForPhysical.patch": "18b2952b4e2faa116476c526ab1a895ce94e68fef91662e4a514f28749e80731",
+    "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0010-ntoskrnl-Implement-PsGetProcessImageFileName.patch": "d4362c441ec18c55494afab4b1f819e46858a003a2b93f62828343b2ddd220ac",
+    "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0011-ntoskrnl-Implement-SeLocateProcessImageName.patch": "6e89d125437a93b0438dda98f6ded77dc2c26e7c26288302da97b03066310753",
+    "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0012-ntoskrnl-Implement-PsReferencePrimaryToken.patch": "4597f0c779aff35aaeb1e546f646aa9549df52faac6c1d75c0143ec12b66c8f0",
+    "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0013-ntoskrnl-Implement-PsGetContextThread.patch": "14e40423e885598e97b9a87adbd9d59249d8121de62cec0621acb492fe5f560c",
+    "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0014-fixup-ntoskrnl-Fix-bugs-with-create_process_object.patch": "1fa3b3229c6471ea3f0955a67fa28f253a97c5b9a81de94b8d385f2812d3d994",
+    "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0015-fixup-ntoskrnl-SeLocateProcessImageName.patch": "82f1fddef8a44219b29268f1d2e2123835a95a2a9f8542433c8aec58cd9546d4",
+    "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0016-ntoskrnl-Add-stub-for-KeCapturePersistentThreadState.patch": "82d827134969b75cbd1881c00cdc7d8411626bdb7768deaf63885a4891e38a3e",
+    "src/Endfield_FineWine/patches/stage2-dwproton/em-backports/0017-ntoskrnl-Implement-MmGetPhysicalMemoryRanges.patch": "923417dd2ca5b81ab083b01c2169411cc976c2e30faf08ddcc91f762ad0b0c62",
+    "src/Endfield_FineWine/patches/moltenvk/0001-reject-pipeline-caches-without-the-barrier-fix.patch": "41e928b761f08ce6e59627f306c0dd27dcb551ad6f3b536bdb23df6cee323d23",
+    "src/Endfield_FineWine/patches/moltenvk/0002-use-metal-hazard-tracking-instead-of-barrier-fences.patch": "9f65a3967a17062693af77b88f5720f39f2a65c795ea7c65a57b93281e1dc420",
+    "src/Endfield_FineWine/patches/moltenvk/0003-compile-shader-libraries-outside-the-pipeline-cache-lock.patch": "40413e71d3264fcc23ebdd59f26a940839ffd4f981aa44292cf197930813457d",
+    "src/Endfield_FineWine/patches/moltenvk/0004-defer-cached-shader-libraries-and-replay-recorded-pipelines.patch": "0e2c0669f87df3de891331aa968e3a4d14b1d8400a9f4b0abd7ca137710fa833",
+    "src/Endfield_FineWine/patches/moltenvk/0005-make-vertex-positions-invariant.patch": "7b177fe6ade18973f2cab40f05ef4ff4cbad16a8d0719078cffd881aff39dde7",
+    "src/Endfield_FineWine/patches/moltenvk/0006-reuse-resource-tracking-nodes.patch": "3c4df7c7aa180d82fac302089b39a90205fa5ede981f9b11c2df87bc4cc0446a",
+    "src/Endfield_FineWine/patches/moltenvk/0007-don-t-hang-vkWaitForPresentKHR-on-a-stalled-present-completion.patch": "b51a56cf9a1306a0d52a0d59fbb8065cc455ebc83d8d7c955abd5bb75c069939",
+    "src/Endfield_FineWine/patches/moltenvk/spirv-cross/0001-msl-fence-device-scope-control-barriers.patch": "13598adb23c93589025539cc5502b46a8f1edb5e2555338a1357600bcca72910",
+    "port/noptest.c": "a82ee30829a1ae7700a66ec733397c9aa55c95db9894df3600b9e04192ee7d07",
+    "port/xgetbvtest.c": "8dfae36e7ed5f298b23ab159812856819a1bfdb9479e1a31684a844abbbcc415",
+    "port/rosetta_probe.c": "dd56946bca8fd73b6225a06dd4c350d66d276778bcfc0be8b136ff6e0fdd7152",
+    "port/verify_port.py": "40659b81c0bd07de025ca43673bb07876bb306b266771da82c5195c533bb58c6"
+  }
+}

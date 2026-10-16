@@ -1,0 +1,165 @@
+name: Validate Wine on macOS
+
+'on':
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-wine-validation
+  cancel-in-progress: false
+
+jobs:
+  helpers:
+    name: Portable helpers with sanitizers
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Check handoff integrity
+        working-directory: port/mac-handoff
+        run: sha256sum -c SHA256SUMS
+      - name: Compile exact patched helpers and run checks
+        run: python3 scripts/test_helpers.py --sanitize --output "$RUNNER_TEMP/helper-results"
+      - name: Upload helper evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: linux-helper-results
+          path: ${{ runner.temp }}/helper-results
+          retention-days: 3
+          if-no-files-found: ignore
+
+  macos:
+    name: Full Wine build and Rosetta probe
+    needs: helpers
+    runs-on: macos-15
+    timeout-minutes: 240
+    env:
+      TOOL_BREW: /opt/homebrew/bin/brew
+      INTEL_BREW: /usr/local/bin/brew
+      JOBS: '2'
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+      HOMEBREW_NO_INSTALL_CLEANUP: '1'
+      CCACHE_MAXSIZE: 1G
+      CCACHE_COMPILERCHECK: content
+      CC: ccache /usr/bin/clang -arch x86_64
+      CXX: ccache /usr/bin/clang++ -arch x86_64
+      OBJC: ccache /usr/bin/clang -arch x86_64
+      x86_64_CC: ccache x86_64-w64-mingw32-gcc
+      CFLAGS: -O2 -g0
+      CXXFLAGS: -O2 -g0
+      CROSSCFLAGS: -O2 -g0
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Record environment
+        run: |
+          export WORK_DIR="$RUNNER_TEMP/wine-validation"
+          echo "WORK_DIR=$WORK_DIR" >> "$GITHUB_ENV"
+          echo "CCACHE_DIR=$RUNNER_TEMP/wine-ccache" >> "$GITHUB_ENV"
+          mkdir -p "$WORK_DIR/diagnostics"
+          {
+            sw_vers
+            uname -a
+            xcodebuild -version
+            /usr/bin/clang --version
+            sysctl hw.memsize hw.ncpu
+            df -h "$RUNNER_TEMP"
+            git rev-parse HEAD
+          } > "$WORK_DIR/diagnostics/environment.txt" 2>&1
+          cat "$WORK_DIR/diagnostics/environment.txt"
+      - name: Check handoff integrity
+        working-directory: port/mac-handoff
+        run: shasum -a 256 -c SHA256SUMS
+      - name: Install native tools and Intel runtime libraries
+        run: |
+          bash scripts/ci-macos-deps.sh 2>&1 | tee "$WORK_DIR/diagnostics/dependencies.log"
+          echo /opt/homebrew/bin >> "$GITHUB_PATH"
+          /opt/homebrew/bin/ccache --max-size "$CCACHE_MAXSIZE"
+      - name: Restore compiler cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: wine-1119-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: wine-1119-${{ runner.os }}-${{ runner.arch }}-
+      - name: Fetch pinned Wine and apply selected patches
+        run: bash port/mac-handoff/build-mac.sh prepare
+      - name: Test helpers extracted from this Wine tree
+        env:
+          HOST_CC: /usr/bin/clang
+        run: python3 scripts/test_helpers.py --source "$WORK_DIR/wine-src" --output "$WORK_DIR/diagnostics/helpers"
+      - name: Configure full x86_64 macOS Wine
+        run: bash port/mac-handoff/build-mac.sh configure
+      - name: Build and install full Wine
+        run: bash port/mac-handoff/build-mac.sh build
+      - name: Run Wine and instruction probe under Rosetta
+        run: python3 scripts/run_macos_smoke.py --work "$WORK_DIR"
+      - name: Package installed runtime and provenance
+        run: |
+          mkdir -p "$RUNNER_TEMP/wine-artifacts"
+          cp port/mac-handoff/PROVENANCE.txt "$WORK_DIR/wine-install/"
+          cp -R port/mac-handoff/licenses "$WORK_DIR/wine-install/"
+          cp -R port/mac-handoff/patches "$WORK_DIR/wine-install/"
+          {
+            echo 'Wine source: https://github.com/wine-mirror/wine.git'
+            git -C "$WORK_DIR/wine-src" rev-parse HEAD
+            echo 'Patch repository commit:'
+            git rev-parse HEAD
+            cat "$WORK_DIR/diagnostics/environment.txt"
+          } > "$WORK_DIR/wine-install/BUILD-INFO.txt"
+          tar -czf "$RUNNER_TEMP/wine-artifacts/wine-11.19-macos-x86_64.tar.gz" -C "$WORK_DIR" wine-install
+          shasum -a 256 "$RUNNER_TEMP/wine-artifacts/wine-11.19-macos-x86_64.tar.gz" > "$RUNNER_TEMP/wine-artifacts/SHA256SUMS"
+      - name: Record final diagnostics
+        if: always()
+        run: |
+          mkdir -p "$WORK_DIR/diagnostics"
+          if command -v ccache >/dev/null; then
+            ccache --show-stats > "$WORK_DIR/diagnostics/ccache.txt"
+          fi
+          df -h "$RUNNER_TEMP" > "$WORK_DIR/diagnostics/disk.txt"
+          if [ -f "$WORK_DIR/wine-build/config.log" ]; then
+            cp "$WORK_DIR/wine-build/config.log" "$WORK_DIR/diagnostics/"
+          fi
+          if [ -f "$WORK_DIR/wine-build/include/config.h" ]; then
+            cp "$WORK_DIR/wine-build/include/config.h" "$WORK_DIR/diagnostics/"
+          fi
+          if [ -d "$WORK_DIR/wine-install" ]; then
+            find "$WORK_DIR/wine-install" -name '*.so' -exec file {} + > "$WORK_DIR/diagnostics/unix-modules.txt"
+          fi
+          {
+            echo '## Wine / Rosetta validation'
+            echo 'Scope: compilation and CPU/exception probe; no graphics or game.'
+            if [ -f "$WORK_DIR/smoke/smoke.json" ]; then
+              cat "$WORK_DIR/smoke/smoke.json"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Save compiler cache
+        if: always()
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: wine-1119-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: macos-wine-diagnostics
+          path: |
+            ${{ env.WORK_DIR }}/diagnostics
+            ${{ env.WORK_DIR }}/*.log
+            ${{ env.WORK_DIR }}/smoke
+          retention-days: 3
+          if-no-files-found: warn
+      - name: Upload validated Wine build
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: wine-11.19-macos-x86_64
+          path: ${{ runner.temp }}/wine-artifacts
+          retention-days: 3
+          compression-level: 0
+          if-no-files-found: error

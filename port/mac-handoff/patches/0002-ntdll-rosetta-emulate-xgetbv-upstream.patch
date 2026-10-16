@@ -1,0 +1,61 @@
+diff --git a/dlls/ntdll/unix/signal_x86_64.c b/dlls/ntdll/unix/signal_x86_64.c
+--- a/dlls/ntdll/unix/signal_x86_64.c
++++ b/dlls/ntdll/unix/signal_x86_64.c
+@@ -2006,6 +2006,34 @@
+ #endif
+ 
+ 
++#ifdef __APPLE__
++/* __builtin_available is not signal-safe, so cache it at init time */
++static BOOL sequoia_or_later;
++
++/***********************************************************************
++ *           rosetta_emulate_xgetbv
++ *
++ * Rosetta 2 raises an invalid-opcode fault on XGETBV. Emulate it for
++ * xcr0 (ecx == 0), which is what CPU feature detection code queries.
++ */
++static BOOL rosetta_emulate_xgetbv( ucontext_t *sigcontext )
++{
++    BYTE instr[3];
++    unsigned int len = virtual_uninterrupted_read_memory( (BYTE *)RIP_sig(sigcontext), instr, sizeof(instr) );
++
++    /* prefixed xgetbv is illegal, so no need to check for prefixes */
++    if (len < 3 || instr[0] != 0x0f || instr[1] != 0x01 || instr[2] != 0xd0) return FALSE;
++    if ((RCX_sig(sigcontext) & 0xffffffff) != 0) return FALSE;
++
++    RDX_sig(sigcontext) = 0;
++    /* Rosetta on macOS 15+ supports AVX/AVX2 */
++    RAX_sig(sigcontext) = sequoia_or_later ? 0xe7 : 0x07;
++    RIP_sig(sigcontext) += 3;
++    TRACE_(seh)( "emulated xgetbv\n" );
++    return TRUE;
++}
++#endif
++
+ #pragma pack(push,1)
+ union atl_thunk
+ {
+@@ -2363,6 +2391,11 @@
+             leave_handler( data, sigcontext );
+             return;
+         }
++        if (rosetta_emulate_xgetbv( sigcontext ))
++        {
++            leave_handler( data, sigcontext );
++            return;
++        }
+         /* Rosetta 2 reports privileged instructions (e.g. mov reg,crX) as invalid
+          * opcodes rather than #GP; report them the same way as on native x86. */
+         if ((rec.ExceptionCode = is_privileged_instr( &context.c ))) break;
+@@ -2891,6 +2924,10 @@
+     __asm__( "movw %%cs,%0" : "=m" (cs64_sel) );
+     __asm__( "movw %%ss,%0" : "=m" (ds64_sel) );
+ 
++#ifdef __APPLE__
++    if (__builtin_available( macOS 15.0, * )) sequoia_or_later = TRUE;
++#endif
++
+     if (wow_teb)
+     {
+ #ifdef __linux__

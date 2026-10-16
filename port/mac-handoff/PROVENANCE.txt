@@ -1,0 +1,7 @@
+Source pins and original patch hashes are in verification.json.
+Wine patches/helpers: LGPL-2.1-or-later.
+Rosetta NOP/privileged-instruction port is based on FineWine; XGETBV helper is based on
+CodeWeavers CrossOver 26.3 Wine source (CW HACK 23427), not a new CPU capability guarantee.
+MoltenVK/SPIRV-Cross patches: see original FineWine patch provenance and upstream licenses.
+No game, CrossOver binary, or Apple graphics payload is bundled.
+rosetta_probe.exe is compiled from the included source and only tests instructions/exceptions.

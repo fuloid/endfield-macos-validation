@@ -1,0 +1,15 @@
+# Only the audited handoff and CI tooling belong in this repository.
+/*
+!/.gitignore
+!/.gitattributes
+!/.github/
+!/README.md
+!/scripts/
+!/port/
+/port/*
+!/port/mac-handoff/
+/port/mac-handoff/mac-work/
+/port/mac-handoff/helper-tests/
+__pycache__/
+*.pyc
+/.github/**/*.log
