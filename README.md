@@ -21,4 +21,6 @@ DXMT integration, MoltenVK GPU behavior, ACE acceptance, and gameplay still need
 
 The audited transfer package, patch provenance, licenses, and original local evidence are under [`port/mac-handoff`](port/mac-handoff). [`MAC_HANDOFF.md`](port/mac-handoff/MAC_HANDOFF.md) documents manual use. CI uses native Homebrew build tools and Intel Homebrew runtime libraries; its setup records both toolchains.
 
+Current Homebrew no longer bootstraps Intel installations. CI therefore pins the Intel side to official Homebrew 5.0.0 (`c9ab4622bce3bc96253c66d2e775cedf92ad40a8`) and a matching historical core snapshot (`c93932295cbf28ce84a0c068c25b6116db7eb152`), using their Intel bottles. This is a frozen test dependency set, including unpatched MoltenVK 1.4.0 for loader checks; it is separate from the optional patched MoltenVK 1.4.2 graphics experiment.
+
 The initial repository branch is `ci/macos-validation`; this project does not push to `main`.

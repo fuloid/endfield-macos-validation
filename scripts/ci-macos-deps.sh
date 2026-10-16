@@ -9,13 +9,30 @@ arch -x86_64 /usr/bin/true
 test -x /opt/homebrew/bin/brew
 /opt/homebrew/bin/brew install bison mingw-w64 pkgconf ccache
 if [ ! -x /usr/local/bin/brew ]; then
-    curl -fL --retry 3 https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh \
-        -o "$RUNNER_TEMP/homebrew-install.sh"
-    NONINTERACTIVE=1 arch -x86_64 /bin/bash "$RUNNER_TEMP/homebrew-install.sh"
+    # The current installer only supports Apple Silicon. Use official historical
+    # Homebrew/core revisions that still provide Intel bottles for this experiment.
+    for directory in Homebrew Cellar Caskroom Frameworks bin etc include lib opt sbin share var; do
+        sudo /usr/bin/install -d -o "$(id -un)" -g admin -m 0755 "/usr/local/$directory"
+    done
+    git init -q /usr/local/Homebrew
+    git -C /usr/local/Homebrew remote add origin https://github.com/Homebrew/brew.git
+    git -C /usr/local/Homebrew fetch --depth 1 origin c9ab4622bce3bc96253c66d2e775cedf92ad40a8
+    git -C /usr/local/Homebrew checkout -q --detach FETCH_HEAD
+    ln -s /usr/local/Homebrew/bin/brew /usr/local/bin/brew
 fi
-arch -x86_64 /usr/local/bin/brew install freetype gnutls molten-vk
+core=/usr/local/Homebrew/Library/Taps/homebrew/homebrew-core
+if [ ! -d "$core/.git" ]; then
+    git init -q "$core"
+    git -C "$core" remote add origin https://github.com/Homebrew/homebrew-core.git
+    git -C "$core" fetch --depth 1 origin c93932295cbf28ce84a0c068c25b6116db7eb152
+    git -C "$core" checkout -q --detach FETCH_HEAD
+fi
+intel_brew() { HOMEBREW_NO_INSTALL_FROM_API=1 arch -x86_64 /usr/local/bin/brew "$@"; }
+intel_brew --version
+git -C "$core" rev-parse HEAD
+intel_brew install --force-bottle freetype gnutls molten-vk
 for formula in freetype gnutls molten-vk; do
-    arch -x86_64 /usr/local/bin/brew list --versions "$formula"
+    intel_brew list --versions "$formula"
 done
 lipo -verify_arch x86_64 /usr/local/opt/freetype/lib/libfreetype.dylib
 lipo -verify_arch x86_64 /usr/local/opt/gnutls/lib/libgnutls.dylib
