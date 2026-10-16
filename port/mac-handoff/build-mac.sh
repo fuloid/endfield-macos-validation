@@ -42,23 +42,25 @@ configure() {
     source_check
     [ -x "$BREW" ] || die 'Intel Homebrew is required; see MAC_HANDOFF.md.'
     [ "$("$BREW" --prefix)" = /usr/local ] || die 'Use Intel Homebrew in /usr/local.'
-    local bison_prefix freetype_prefix gnutls_prefix mvk_prefix
+    local bison_prefix freetype_prefix gnutls_prefix mvk_prefix mac_sdk
     bison_prefix="$("$TOOL_BREW" --prefix bison)"
     freetype_prefix="$("$BREW" --prefix freetype)"
     gnutls_prefix="$("$BREW" --prefix gnutls)"
     mvk_prefix="$("$BREW" --prefix molten-vk)"
+    mac_sdk="$(xcrun --sdk macosx --show-sdk-path)"
     local dylib
     for dylib in "$freetype_prefix/lib/libfreetype.dylib" "$gnutls_prefix/lib/libgnutls.dylib" "$mvk_prefix/lib/libMoltenVK.dylib"; do
         [ -f "$dylib" ] || die "Missing runtime library: $dylib"
         lipo "$dylib" -verify_arch x86_64
     done
     export PATH="$bison_prefix/bin:$("$TOOL_BREW" --prefix)/bin:/usr/local/bin:$PATH"
-    export PKG_CONFIG_LIBDIR="$freetype_prefix/lib/pkgconfig:$gnutls_prefix/lib/pkgconfig:/usr/local/lib/pkgconfig:/usr/local/share/pkgconfig"
+    export PKG_CONFIG_LIBDIR="$freetype_prefix/lib/pkgconfig:$gnutls_prefix/lib/pkgconfig:/usr/local/lib/pkgconfig:/usr/local/share/pkgconfig:$mac_sdk/usr/lib/pkgconfig"
     export PKG_CONFIG_PATH="$PKG_CONFIG_LIBDIR"
     export CPPFLAGS="-I/usr/local/include ${CPPFLAGS:-}"
     export LDFLAGS="-L/usr/local/lib -L$mvk_prefix/lib ${LDFLAGS:-}"
     export LIBRARY_PATH="/usr/local/lib:$mvk_prefix/lib"
     export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-15.0}"
+    pkg-config --print-errors --cflags --libs freetype2 gnutls | tee "$WORK_DIR/dependency-flags.log"
     command -v x86_64-w64-mingw32-gcc >/dev/null || die 'Install mingw-w64 (see MAC_HANDOFF.md).'
     mkdir -p "$BUILD"
     [ ! -f "$BUILD/Makefile" ] || die 'Build already configured; use build or a new WORK_DIR.'
