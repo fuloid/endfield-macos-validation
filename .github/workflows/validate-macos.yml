@@ -7,6 +7,10 @@ name: Validate Wine on macOS
         description: 'Run the Endfield launcher test job (launcher -> Play -> Unity) after the build'
         type: boolean
         default: true
+      rebuild:
+        description: 'Ignore the cached Wine build and rebuild from source'
+        type: boolean
+        default: false
   push:
     branches: [ci/macos-validation]
     paths:
@@ -123,27 +127,58 @@ jobs:
           bash scripts/ci-macos-deps.sh 2>&1 | tee "$WORK_DIR/diagnostics/dependencies.log"
           echo /opt/homebrew/bin >> "$GITHUB_PATH"
           /opt/homebrew/bin/ccache --max-size "$CCACHE_MAXSIZE"
+      # The installed Wine depends only on the patches, build-mac.sh (pins the Wine revision
+      # and configure flags) and the dependency script; reuse it unless one of them changed.
+      - name: Restore cached Wine build
+        id: winecache
+        if: ${{ !inputs.rebuild }}
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ env.WORK_DIR }}/wine-install
+          key: wine-install-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('port/mac-handoff/patches/**', 'port/mac-handoff/build-mac.sh', 'scripts/ci-macos-deps.sh') }}
+      - name: Report Wine build cache
+        run: |
+          if [ "${{ steps.winecache.outputs.cache-hit }}" = true ]; then
+            echo 'Wine build: reused from cache (patches, build-mac.sh and deps unchanged)' | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Wine build: building from source (inputs changed, no cache, or rebuild requested)' | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
       - name: Restore compiler cache
+        if: ${{ !(steps.winecache.outputs.cache-hit == 'true') }}
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ${{ env.CCACHE_DIR }}
           key: wine-1119-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: wine-1119-${{ runner.os }}-${{ runner.arch }}-
       - name: Fetch pinned Wine and apply selected patches
+        if: ${{ !(steps.winecache.outputs.cache-hit == 'true') }}
         run: bash port/mac-handoff/build-mac.sh prepare
       - name: Test helpers extracted from this Wine tree
         env:
           HOST_CC: /usr/bin/clang
-        run: python3 scripts/test_helpers.py --source "$WORK_DIR/wine-src" --output "$WORK_DIR/diagnostics/helpers"
+        run: |
+          if [ -d "$WORK_DIR/wine-src" ]; then
+            python3 scripts/test_helpers.py --source "$WORK_DIR/wine-src" --output "$WORK_DIR/diagnostics/helpers"
+          else
+            python3 scripts/test_helpers.py --output "$WORK_DIR/diagnostics/helpers"
+          fi
       - name: Configure full x86_64 macOS Wine
+        if: ${{ !(steps.winecache.outputs.cache-hit == 'true') }}
         run: bash port/mac-handoff/build-mac.sh configure
       - name: Build and install full Wine
         id: build
+        if: ${{ !(steps.winecache.outputs.cache-hit == 'true') }}
         run: bash port/mac-handoff/build-mac.sh build
+      - name: Save Wine build cache
+        if: ${{ steps.build.outcome == 'success' }}
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ env.WORK_DIR }}/wine-install
+          key: wine-install-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('port/mac-handoff/patches/**', 'port/mac-handoff/build-mac.sh', 'scripts/ci-macos-deps.sh') }}
       - name: Run Wine and instruction probe under Rosetta
         run: python3 scripts/run_macos_smoke.py --work "$WORK_DIR"
       - name: Package installed runtime and provenance
-        if: always() && steps.build.outcome == 'success'
+        if: always() && (steps.build.outcome == 'success' || steps.winecache.outputs.cache-hit == 'true')
         run: |
           mkdir -p "$RUNNER_TEMP/wine-artifacts"
           cp port/mac-handoff/PROVENANCE.txt "$WORK_DIR/wine-install/"
@@ -151,7 +186,7 @@ jobs:
           cp -R port/mac-handoff/patches "$WORK_DIR/wine-install/"
           {
             echo 'Wine source: https://github.com/wine-mirror/wine.git'
-            git -C "$WORK_DIR/wine-src" rev-parse HEAD
+            git -C "$WORK_DIR/wine-src" rev-parse HEAD 2>/dev/null || echo '455e3509b98a6919fd4ad1def4803e08c41c03b2 (cached build)'
             echo 'Patch repository commit:'
             git rev-parse HEAD
             cat "$WORK_DIR/diagnostics/environment.txt"
@@ -183,7 +218,7 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Save compiler cache
-        if: always()
+        if: always() && steps.build.outcome == 'success'
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ${{ env.CCACHE_DIR }}
@@ -200,7 +235,7 @@ jobs:
           retention-days: 3
           if-no-files-found: warn
       - name: Upload compiled Wine runtime
-        if: always() && steps.build.outcome == 'success'
+        if: always() && (steps.build.outcome == 'success' || steps.winecache.outputs.cache-hit == 'true')
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: wine-11.19-macos-x86_64

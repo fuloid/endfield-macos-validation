@@ -188,10 +188,10 @@ class Run:
         self.report['clicker'] = str(clicker)
         self.head = (self.out / 'wine-head.log').open('w', errors='replace')
 
-        # Environment-only graphics fallbacks (no launcher files touched). CI VMs have no usable
-        # OpenGL for Wine, which breaks wined3d and therefore Qt's ANGLE renderer.
-        attempts = [('default', {}),
-                    ('wined3d-vulkan', {'WINE_D3D_CONFIG': 'renderer=vulkan'}),
+        # Environment-only graphics modes (no launcher files touched). CI VMs have no usable
+        # OpenGL for Wine, which breaks wined3d and therefore Qt's ANGLE renderer; the default
+        # (OpenGL) mode crashed the launcher in 3 of 3 runs, so start with Vulkan.
+        attempts = [('wined3d-vulkan', {'WINE_D3D_CONFIG': 'renderer=vulkan'}),
                     ('wined3d-vulkan+chromium-software',
                      {'WINE_D3D_CONFIG': 'renderer=vulkan',
                       'QTWEBENGINE_CHROMIUM_FLAGS': '--disable-gpu --disable-gpu-compositing'})]
