@@ -25,7 +25,9 @@ LOG_HEAD_BYTES = 16 * 1024 * 1024
 LOG_TAIL_LINES = 20000
 # fractions of the Games.exe window rect (incl. shadow margin), calibrated on Windows
 TARGETS = {'events': (0.408, 0.740), 'notices': (0.357, 0.740),
-           'dx11_checkbox': (0.758, 0.926), 'play': (0.834, 0.867)}
+           'dx11_checkbox': (0.758, 0.926), 'play': (0.834, 0.867),
+           # "SYSTEM NOTIFICATION" patch dialog (centred in the launcher): Confirm button
+           'patch_confirm': (0.583, 0.615)}
 MARKERS = {
     'bugcheck_wace_65636157': r'KeBugCheckEx 65636157',
     'bugcheck_tace_65636154': r'KeBugCheckEx 65636154',
@@ -46,15 +48,25 @@ UNITY_MARKERS = ['Initialize engine version', 'Direct3D:', 'GfxDevice', 'il2cpp'
 
 
 def catbox(path):
-    """Upload a screenshot to catbox.moe (public, anonymous) and return its URL, or None."""
+    """Upload a screenshot and return (url, error). Uses catbox.moe when CATBOX_USERHASH is set
+    (anonymous catbox uploads are rejected with 412 "Invalid uploader"), otherwise litterbox
+    (catbox's temporary host, links expire after 72 h, like the run artifacts)."""
+    userhash = os.environ.get('CATBOX_USERHASH')
+    if userhash:
+        cmd = ['https://catbox.moe/user/api.php', '-F', f'userhash={userhash}']
+    else:
+        cmd = ['https://litterbox.catbox.moe/resources/internals/api.php', '-F', 'time=72h']
     try:
-        r = subprocess.run(['curl', '-fsS', '--max-time', '60', '-F', 'reqtype=fileupload',
-                            '-F', f'fileToUpload=@{path}', 'https://catbox.moe/user/api.php'],
-                           capture_output=True, text=True, timeout=90)
-        url = r.stdout.strip()
-        return url if r.returncode == 0 and url.startswith('https://') else None
-    except Exception:
-        return None
+        r = subprocess.run(['curl', '-sS', '--max-time', '90', '-A', 'Mozilla/5.0 (endfield-ci)',
+                            '-w', '\\n%{http_code}', '-F', 'reqtype=fileupload',
+                            '-F', f'fileToUpload=@{path}', *cmd[1:], cmd[0]],
+                           capture_output=True, text=True, timeout=120)
+        body, _, code = r.stdout.strip().rpartition('\n')
+        if r.returncode == 0 and code == '200' and body.startswith('https://'):
+            return body, None
+        return None, f'HTTP {code}: {body[:120]} {r.stderr.strip()[:120]}'.strip()
+    except Exception as e:
+        return None, str(e)[:200]
 
 
 def free_memory():
@@ -163,6 +175,21 @@ class Run:
                 return 'normal'
         return 'minimized' if any('state=minimized' in l for l in lines) else 'gone'
 
+    def wait_handoff(self, clicker, seconds, after):
+        start = self.t()
+        while self.t() - start < seconds:
+            time.sleep(3)
+            state = self.launcher_state(clicker)
+            if state != 'normal':
+                self.report['launcher_after_play'] = state
+                self.report['launcher_minimized_after_s'] = round(self.t() - start, 1)
+                self.report['launcher_minimized_after'] = after
+                self.note(f'launcher {state} {self.t() - start:.0f}s after {after}: '
+                          'Endfield is probably starting')
+                self.shot('launcher-minimized')
+                return True
+        return False
+
     def click(self, clicker, name):
         rx, ry = TARGETS[name]
         code, text = self.wine_run([clicker, 'click', 'Games.exe', rx, ry], timeout=60)
@@ -268,20 +295,23 @@ class Run:
 
         # The launcher minimizes (or hides) itself when it hands off to the game: a strong
         # early sign that Play registered and Endfield.exe is starting.
-        played = self.t()
         self.report['launcher_after_play'] = 'normal'
-        while self.t() - played < 30:
-            time.sleep(3)
-            state = self.launcher_state(clicker)
-            if state != 'normal':
-                self.report['launcher_after_play'] = state
-                self.report['launcher_minimized_after_s'] = round(self.t() - played, 1)
-                self.note(f'launcher {state} {self.t() - played:.0f}s after Play: '
-                          'Endfield is probably starting')
-                self.shot('launcher-minimized')
-                break
-        else:
-            self.note('launcher still shown 30s after Play: the click may not have started the game')
+        handed = self.wait_handoff(clicker, 30, 'Play')
+        if not handed:
+            # Play opened the "SYSTEM NOTIFICATION" patch dialog in CI (a small game patch).
+            # Confirm it like a user, let the patch download, then press Play again.
+            self.shot('play-no-handoff')
+            self.click(clicker, 'patch_confirm')
+            self.report['patch_confirm_clicked'] = True
+            handed = self.wait_handoff(clicker, 90, 'patch Confirm')
+            for attempt in range(1, 4):
+                if handed:
+                    break
+                self.shot(f'before-play-retry-{attempt}')
+                self.click(clicker, 'play')
+                handed = self.wait_handoff(clicker, 40, f'Play retry {attempt}')
+        if not handed:
+            self.note('launcher never minimized after Play: the game was not started')
 
         seen_game = seen_handler = None
         handler_since = None
@@ -329,9 +359,11 @@ class Run:
                            'crashed right away (check wine logs for the Endfield.exe process)')
         elif not seen_game:
             reasons.append('Endfield.exe never appeared and the launcher stayed open after clicking '
-                           'Play: the click may not have registered (see screens/after-*.png and '
-                           'clicks in game.json), or the launcher asked to log in / update / repair '
-                           'the trimmed install, or refused to start the game')
+                           'Play' + (', confirming the patch dialog and retrying Play'
+                                     if self.report.get('patch_confirm_clicked') else '')
+                           + ': the patch may still be downloading or failed, the launcher may want '
+                           'a login / repair, or a dialog other than the patch prompt is shown '
+                           '(see screens/play-no-handoff.png and before-play-retry-*.png)')
         if self.counts['bugcheck_wace_65636157']:
             reasons.append('ACE-CORE entry check failed (KeBugCheckEx 65636157)')
         if self.counts['unhandled_exception']:
@@ -373,8 +405,10 @@ class Run:
                   f'- lsass.exe running before launch: {self.report.get("lsass_running_before_launch")}',
                   f'- launcher window: `{self.report.get("launcher_window")}`',
                   f'- launcher after Play: {self.report.get("launcher_after_play")}'
-                  + (f' (after {self.report["launcher_minimized_after_s"]} s)'
-                     if self.report.get('launcher_minimized_after_s') is not None else ''),
+                  + (f' ({self.report["launcher_minimized_after_s"]} s after '
+                     f'{self.report.get("launcher_minimized_after")})'
+                     if self.report.get('launcher_minimized_after_s') is not None else '')
+                  + (' - patch dialog confirmed' if self.report.get('patch_confirm_clicked') else ''),
                   f'- Endfield.exe started at: {self.report.get("endfield_started_at")} s',
                   f'- UnityCrashHandler64.exe started at: {self.report.get("crash_handler_started_at")} s',
                   '', '| marker | count | first |', '|---|---|---|']
@@ -395,9 +429,10 @@ class Run:
             images = {}
             for title, key in picks:
                 if key in screens and Path(screens[key]).is_file():
-                    url = catbox(screens[key])
-                    images[key] = url
-                    lines += ['', f'### {title}', f'![{key}]({url})' if url else '_(catbox upload failed)_']
+                    url, error = catbox(screens[key])
+                    images[key] = url or error
+                    lines += ['', f'### {title}',
+                              f'![{key}]({url})' if url else f'_(screenshot upload failed: {error})_']
             self.report['catbox'] = images
         lines += ['', 'This job never fails on launcher/game problems; see the endfield-game-smoke artifact.']
         summary = '\n'.join(lines) + '\n'
