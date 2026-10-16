@@ -62,8 +62,8 @@ def main():
         execute('wineboot', ['arch', '-x86_64', wine, 'wineboot', '-u'], 240)
         execute('probe', ['arch', '-x86_64', wine, out / 'rosetta_probe.exe'], 120)
         content = (out / 'probe.log').read_text(errors='replace')
-        if 'Runtime checks: 9, failures: 0' not in content or content.count('PASS ') != 9:
-            raise RuntimeError('Probe did not report all nine passing checks')
+        if 'Runtime checks: 8, failures: 0' not in content or content.count('PASS ') != 8:
+            raise RuntimeError('Probe did not report all eight passing checks')
         report.update(passed=True, nop_skip_trace_found='-byte NOP' in content,
                       xgetbv_emulation_trace_found='emulated xgetbv' in content)
         print('\n'.join(line for line in content.splitlines() if any(

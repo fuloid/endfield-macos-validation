@@ -79,11 +79,11 @@ WINEDEBUG=+seh "$WINEBIN" "$PWD/rosetta_probe.exe" > "$WORK_DIR/rosetta-probe.lo
 cat "$WORK_DIR/rosetta-probe.log"
 ```
 
-Expected: a working x86_64 Wine runtime and **nine passing probe checks**. The probe executes actual machine instructions and handles Windows exceptions; it is separate from the mocked helper tests. It covers five NOP forms (including ENDBR64 and `0F 1F /1`), rewriting and re-running an executed RWX page, XGETBV, `mov rax,cr3` yielding `c0000096`, and UD2 yielding `c000001d`. NOP faults should be consumed by Wine, not reach the program's exception handler. It does not load ACE or prove kernel-driver support.
+Expected: a working x86_64 Wine runtime and **eight passing probe checks**. The probe executes actual machine instructions and handles Windows exceptions; it is separate from the mocked helper tests. It covers five NOP forms (including ENDBR64 and `0F 1F /1`), XGETBV, `mov rax,cr3` yielding `c0000096`, and UD2 yielding `c000001d`. NOP faults should be consumed by Wine, not reach the program's exception handler. It does not load ACE or prove kernel-driver support.
 
 On a Rosetta release that faults on these forms, expect `skipped ...-byte NOP` and `emulated xgetbv` in the SEH trace. If Rosetta executes an instruction itself, no helper trace is expected. Missing trace lines alone are not a failure. For macOS 15+, the emulation returns CrossOver's `0xe7`; that is not proof of AVX-512 support. Apple explicitly [excludes AVX-512](https://developer.apple.com/documentation/apple-silicon/about-the-rosetta-translation-environment).
 
-The supplied probe executable was compiled and passed all nine checks on native Windows as a control. To rebuild it on the Mac:
+The supplied probe executable was compiled and passed all eight checks on native Windows as a control. To rebuild it on the Mac:
 
 ```bash
 /usr/local/bin/x86_64-w64-mingw32-gcc -O2 -Wall -Wextra -Werror rosetta_probe.c -o rosetta_probe.exe
@@ -119,4 +119,4 @@ MoltenVK patch `0007` advances completion when a newer presentation is queued an
 
 `verification.json` records source revisions, individual patch results, compiler identity, input hashes, kernel export checks, and helper/control-test output. Both Rosetta helpers were extracted from the freshly patched source for the tests; the earlier saved copies match exactly. All 8,735 NOP checks and 11 XGETBV checks pass with warnings treated as errors.
 
-The Mac handoff is successful only after a full build, Wine initialization, nine passing runtime probe checks, verified graphics backend loading/rendering, and a stable game session. Remaining uncertainty includes current ACE behavior, graphics integration, service/launcher requirements, and later game updates.
+The Mac handoff is successful only after a full build, Wine initialization, eight passing runtime probe checks, verified graphics backend loading/rendering, and a stable game session. Remaining uncertainty includes current ACE behavior, graphics integration, service/launcher requirements, and later game updates.

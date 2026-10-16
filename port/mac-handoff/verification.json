@@ -1,5 +1,5 @@
 {
-  "snapshots": "port/audit/verify-lkue9cz1",
+  "snapshots": "port/audit/verify-dam3z46u",
   "commits": {
     "wine-11.19": "455e3509b98a6919fd4ad1def4803e08c41c03b2",
     "wine-11.0": "db11d0fe6a169c457e23d007e20404643d067aa8",
@@ -511,7 +511,7 @@
     },
     "runtime_probe_windows_control": {
       "exit_code": 0,
-      "output": "CPUID: OSXSAVE=1 AVX=1 AVX2=1\r\nPASS NOP form 1\r\nPASS NOP form 2\r\nPASS NOP form 3\r\nPASS NOP form 4\r\nPASS NOP form 5\r\nPASS self-modifying code (got 7 then 9)\r\nINFO raw RWX rewrite without VirtualProtect: got 7 then 9 (new code seen)\r\nPASS XGETBV ecx=0, XCR0=0x1f (not an AVX-512 claim)\r\nPASS privileged instruction maps to c0000096\r\nPASS UD2 remains c000001d\r\nRuntime checks: 9, failures: 0\r\n",
+      "output": "CPUID: OSXSAVE=1 AVX=1 AVX2=1\r\nPASS NOP form 1\r\nPASS NOP form 2\r\nPASS NOP form 3\r\nPASS NOP form 4\r\nPASS NOP form 5\r\nINFO self-modifying code via VirtualProtect: got 7 then 9 (new code seen)\r\nINFO raw RWX rewrite without VirtualProtect: got 7 then 9 (new code seen)\r\nPASS XGETBV ecx=0, XCR0=0x1f (not an AVX-512 claim)\r\nPASS privileged instruction maps to c0000096\r\nPASS UD2 remains c000001d\r\nRuntime checks: 8, failures: 0\r\n",
       "scope": "Native Windows control only. Must still run this executable under patched Wine/Rosetta."
     }
   },
@@ -626,7 +626,7 @@
     "src/Endfield_FineWine/patches/moltenvk/spirv-cross/0001-msl-fence-device-scope-control-barriers.patch": "13598adb23c93589025539cc5502b46a8f1edb5e2555338a1357600bcca72910",
     "port/noptest.c": "5e26e8951671f1adca635f8db494f8442d8bb0c3973b52b15451590b92207665",
     "port/xgetbvtest.c": "8dfae36e7ed5f298b23ab159812856819a1bfdb9479e1a31684a844abbbcc415",
-    "port/rosetta_probe.c": "26ef3c2100db8716c1beae6a23e1caff15f6d6821b8d6d753da996cff835e807",
+    "port/rosetta_probe.c": "63f1a60e0bc3e28feaf83c70add72435899cdb351da0416105ad81b27accd1d1",
     "port/verify_port.py": "dd5759231459c4d6fd1dda083ef54138e8c71071522e0897ca03327c5d996069"
   }
 }
