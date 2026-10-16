@@ -54,12 +54,36 @@ configure() {
         lipo "$dylib" -verify_arch x86_64
     done
     export PATH="$bison_prefix/bin:$("$TOOL_BREW" --prefix)/bin:/usr/local/bin:$PATH"
-    export PKG_CONFIG_LIBDIR="$freetype_prefix/lib/pkgconfig:$gnutls_prefix/lib/pkgconfig:/usr/local/lib/pkgconfig:/usr/local/share/pkgconfig:$mac_sdk/usr/lib/pkgconfig"
+    export PKG_CONFIG_LIBDIR="$WORK_DIR/system-pkgconfig:$freetype_prefix/lib/pkgconfig:$gnutls_prefix/lib/pkgconfig:/usr/local/lib/pkgconfig:/usr/local/share/pkgconfig:$mac_sdk/usr/lib/pkgconfig"
     export PKG_CONFIG_PATH="$PKG_CONFIG_LIBDIR"
     export CPPFLAGS="-I/usr/local/include ${CPPFLAGS:-}"
     export LDFLAGS="-L/usr/local/lib -L$mvk_prefix/lib ${LDFLAGS:-}"
     export LIBRARY_PATH="/usr/local/lib:$mvk_prefix/lib"
     export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-15.0}"
+    # Some SDKs omit pkg-config metadata for the system compression libraries,
+    # although Homebrew's FreeType/GnuTLS .pc files require it. Probe actual
+    # x86_64 system versions, then describe those libraries without extra paths.
+    mkdir -p "$WORK_DIR/system-pkgconfig"
+    cat > "$WORK_DIR/system-libraries.c" <<'C'
+#include <stdio.h>
+#include <zlib.h>
+#include <bzlib.h>
+int main(void)
+{
+    printf("zlib=%s\nbzip2=%s\n", zlibVersion(), BZ2_bzlibVersion());
+    return 0;
+}
+C
+    /usr/bin/clang -arch x86_64 "$WORK_DIR/system-libraries.c" -lz -lbz2 -o "$WORK_DIR/system-libraries"
+    arch -x86_64 "$WORK_DIR/system-libraries" | tee "$WORK_DIR/system-libraries.log"
+    local library version link_flag
+    for library in zlib bzip2; do
+        version="$(sed -n "s/^$library=//p" "$WORK_DIR/system-libraries.log" | cut -d, -f1)"
+        [ -n "$version" ] || die "Could not query system $library version."
+        if [ "$library" = zlib ]; then link_flag=-lz; else link_flag=-lbz2; fi
+        printf 'Name: %s\nDescription: Apple system %s\nVersion: %s\nLibs: %s\n' \
+            "$library" "$library" "$version" "$link_flag" > "$WORK_DIR/system-pkgconfig/$library.pc"
+    done
     pkg-config --print-errors --cflags --libs freetype2 gnutls | tee "$WORK_DIR/dependency-flags.log"
     command -v x86_64-w64-mingw32-gcc >/dev/null || die 'Install mingw-w64 (see MAC_HANDOFF.md).'
     mkdir -p "$BUILD"
