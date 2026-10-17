@@ -7,6 +7,9 @@ export type Phase = "boot" | "checking" | "setup" | "ready" | "running" | "failu
 export type Action = "none" | "status" | "setup" | "gryphlink" | "direct";
 export type Modal = "none" | "settings" | "failure" | "uninstall1" | "uninstall2" | "reset1" | "reset2";
 export type Graphics = "dxmt" | "wined3d" | "vulkan";
+export type Launch = "none" | "gryphlink" | "direct";
+export type SetupStep = "none" | "rosetta" | "prefix" | "gryphlink";
+export type StepState = "pending" | "active" | "done" | "failed";
 
 export interface Model {
   readonly phase: Phase;
@@ -50,6 +53,17 @@ export interface Model {
   readonly settingsBusy: boolean;
   readonly controlBusy: boolean;
   readonly keepGameOnReset: boolean;
+  readonly wineVersion: Uint8Array;
+  readonly gryphlinkVersion: Uint8Array;
+  readonly gryphlinkIcon: number;
+  readonly endfieldIcon: number;
+  readonly lastLaunch: Launch;
+  readonly sawLauncher: boolean;
+  readonly sawGame: boolean;
+  readonly sawUnity: boolean;
+  readonly setupStep: SetupStep;
+  readonly stopRequested: boolean;
+  readonly sessionStopped: boolean;
 }
 
 export type Msg =
@@ -115,6 +129,11 @@ export function initialModel(): Model {
     diagnosticObserved: asciiBytes(""), diagnosticSource: asciiBytes(""), diagnosticExplanation: asciiBytes(""), diagnosticNextStep: asciiBytes(""),
     argsEdit: { text: asciiBytes(""), selection: { anchor: 0, focus: 0 }, composition: null },
     debugLogging: false, rosettaAvx: true, settingsSaved: true, settingsBusy: false, controlBusy: false, keepGameOnReset: true,
+    wineVersion: asciiBytes(""), gryphlinkVersion: asciiBytes(""),
+    // Image ids of the static icons declared in app.json `assets.images`.
+    gryphlinkIcon: 1, endfieldIcon: 2,
+    lastLaunch: "none", sawLauncher: false, sawGame: false, sawUnity: false, setupStep: "none",
+    stopRequested: false, sessionStopped: false,
   };
 }
 
@@ -135,10 +154,123 @@ export function modeLabel(model: Model): Uint8Array {
 export function hasLog(model: Model): boolean {
   return model.logPath.length > 0;
 }
+export function hasErrorCode(model: Model): boolean {
+  return model.errorCode.length > 0;
+}
 function sameAscii(bytes: Uint8Array, value: Uint8Array): boolean {
   if (bytes.length !== value.length) return false;
   for (let i = 0; i < bytes.length; i += 1) if (bytes[i] !== value[i]) return false;
   return true;
+}
+function orUnknown(value: Uint8Array): Uint8Array {
+  return value.length > 0 ? value : asciiBytes("Unknown");
+}
+
+// Display helpers for the view. They only derive from engine-reported state.
+export function engineText(model: Model): Uint8Array {
+  return orUnknown(model.engineVersion);
+}
+export function wineText(model: Model): Uint8Array {
+  return orUnknown(model.wineVersion);
+}
+export function gryphlinkText(model: Model): Uint8Array {
+  if (!model.launcherReady) return asciiBytes("Not installed");
+  return model.gryphlinkVersion.length > 0 ? model.gryphlinkVersion : asciiBytes("Installed");
+}
+export function sessionLive(model: Model): boolean {
+  return model.action === "gryphlink" || model.action === "direct";
+}
+export function hasSession(model: Model): boolean {
+  return model.lastLaunch !== "none";
+}
+export function sessionFailed(model: Model): boolean {
+  return model.lastLaunch !== "none" && !model.sessionStopped && (model.launchFailed || model.gameExitCode > 0 || (model.phase === "failure" && !sessionLive(model)));
+}
+export function sessionIdle(model: Model): boolean {
+  return !sessionLive(model) && !sessionFailed(model) && !model.unityStable && !model.sessionStopped;
+}
+export function sessionStable(model: Model): boolean {
+  return model.unityStable && !sessionLive(model) && !model.sessionStopped;
+}
+// A session the user stopped (Force stop game, or Stop/Kill/Restart Wine while it ran)
+// that ended with exit code 0 or 1 is an intended end, not a launch failure.
+function intendedStop(model: Model): boolean {
+  if (!model.stopRequested || !sessionLive(model)) return false;
+  if (model.gameExitCode !== 0 && model.gameExitCode !== 1) return false;
+  return model.doneOk || sameAscii(model.errorCode, asciiBytes("GAME_EXIT_CODE"));
+}
+// The engine appends " See <log path>" to launch errors; the view offers Open log instead.
+function lastMatch(bytes: Uint8Array, needle: Uint8Array): number {
+  for (let i = bytes.length - needle.length; i >= 0; i -= 1) {
+    let hit = true;
+    for (let j = 0; j < needle.length; j += 1) if (bytes[i + j] !== needle[j]) { hit = false; break; }
+    if (hit) return i;
+  }
+  return -1;
+}
+export function errorText(model: Model): Uint8Array {
+  const at = lastMatch(model.errorMessage, asciiBytes(" See "));
+  return at > 0 ? model.errorMessage.slice(0, at) : model.errorMessage;
+}
+// Diagnostic sources are either labels ("Engine event") or log paths; paths stay behind Open log.
+export function showDiagnosticSource(model: Model): boolean {
+  const source = model.diagnosticSource;
+  return source.length > 0 && lastMatch(source, asciiBytes("/")) < 0 && lastMatch(source, asciiBytes("\\")) < 0;
+}
+export function sessionTitle(model: Model): Uint8Array {
+  if (model.lastLaunch === "gryphlink") return asciiBytes("GRYPHLINK session");
+  if (model.lastLaunch === "direct") return asciiBytes("Direct launch session");
+  return asciiBytes("No session yet");
+}
+function stepState(model: Model, done: boolean, reached: boolean): StepState {
+  if (done) return "done";
+  if (!reached) return "pending";
+  if (sessionFailed(model)) return "failed";
+  return sessionLive(model) ? "active" : "pending";
+}
+export function stepLauncher(model: Model): StepState {
+  return stepState(model, model.sawLauncher, model.lastLaunch === "gryphlink");
+}
+export function stepGame(model: Model): StepState {
+  return stepState(model, model.sawGame, model.lastLaunch === "direct" || model.sawLauncher);
+}
+export function stepUnity(model: Model): StepState {
+  return stepState(model, model.sawUnity, model.sawGame);
+}
+export function stepStable(model: Model): StepState {
+  return stepState(model, model.unityStable, model.sawUnity);
+}
+function checkState(model: Model, isReady: boolean, step: SetupStep): StepState {
+  if (isReady) return "done";
+  if (model.setupStep === step && model.action === "setup") return "active";
+  return "pending";
+}
+export function rosettaCheck(model: Model): StepState {
+  return checkState(model, model.rosetta, "rosetta");
+}
+export function prefixCheck(model: Model): StepState {
+  return checkState(model, model.prefixReady, "prefix");
+}
+export function launcherCheck(model: Model): StepState {
+  return checkState(model, model.launcherReady, "gryphlink");
+}
+function setupStepOf(step: Uint8Array): SetupStep {
+  if (sameAscii(step, asciiBytes("rosetta"))) return "rosetta";
+  if (sameAscii(step, asciiBytes("prefix"))) return "prefix";
+  if (sameAscii(step, asciiBytes("gryphlink"))) return "gryphlink";
+  return "none";
+}
+// A setup step event. A finished step marks its checklist row ready; the
+// status refresh that ends setup replaces these flags with engine truth.
+function applyStep(model: Model, e: EngineEvent): Model {
+  const step = setupStepOf(e.step);
+  const finished = sameAscii(e.state, asciiBytes("done")) || sameAscii(e.state, asciiBytes("skipped"));
+  const next = { ...model, activity: e.message, setupStep: step === "none" ? model.setupStep : step };
+  if (!finished || model.action !== "setup") return next;
+  if (step === "rosetta") return { ...next, rosetta: true };
+  if (step === "prefix") return { ...next, prefixReady: true };
+  if (step === "gryphlink") return { ...next, launcherReady: true };
+  return next;
 }
 
 export function update(model: Model, msg: Msg): Model | [Model, Cmd<Msg>] {
@@ -151,25 +283,25 @@ export function update(model: Model, msg: Msg): Model | [Model, Cmd<Msg>] {
       return [{ ...model, phase: "checking", action: "status", modal: "none", doneOk: false, doneReceived: false, processExited: false }, Cmd.spawn([model.runner, model.script, asciiBytes("status")], { key: "main", line: "line", exit: "exited", err: "spawn_failed" })];
     case "setup":
       if (model.action !== "none") return model;
-      return [{ ...model, phase: "setup", action: "setup", doneOk: false, doneReceived: false, processExited: false, activity: asciiBytes("Preparing Rosetta, Wine and GRYPHLINK...") }, Cmd.spawn([model.runner, model.script, asciiBytes("setup")], { key: "main", line: "line", exit: "exited", err: "spawn_failed" })];
+      return [{ ...model, phase: "setup", action: "setup", setupStep: "none", doneOk: false, doneReceived: false, processExited: false, activity: asciiBytes("Preparing Rosetta, Wine and GRYPHLINK...") }, Cmd.spawn([model.runner, model.script, asciiBytes("setup")], { key: "main", line: "line", exit: "exited", err: "spawn_failed" })];
     case "run_launcher":
       if (!canRunLauncher(model)) return model;
-      return [{ ...model, phase: "running", action: "gryphlink", doneOk: false, doneReceived: false, processExited: false, unityStable: false, launchFailed: false, gameExitCode: -1, logPath: asciiBytes(""), diagnosticObserved: asciiBytes(""), diagnosticSource: asciiBytes(""), diagnosticExplanation: asciiBytes(""), diagnosticNextStep: asciiBytes(""), activity: asciiBytes("Starting GRYPHLINK...") }, Cmd.spawn([model.runner, model.script, asciiBytes("run-gryphlink"), asciiBytes("--graphics"), asciiBytes(model.graphics)], { key: "main", line: "line", exit: "exited", err: "spawn_failed" })];
+      return [{ ...model, phase: "running", action: "gryphlink", lastLaunch: "gryphlink", stopRequested: false, sessionStopped: false, sawLauncher: false, sawGame: false, sawUnity: false, doneOk: false, doneReceived: false, processExited: false, unityStable: false, launchFailed: false, gameExitCode: -1, logPath: asciiBytes(""), diagnosticObserved: asciiBytes(""), diagnosticSource: asciiBytes(""), diagnosticExplanation: asciiBytes(""), diagnosticNextStep: asciiBytes(""), activity: asciiBytes("Starting GRYPHLINK...") }, Cmd.spawn([model.runner, model.script, asciiBytes("run-gryphlink"), asciiBytes("--graphics"), asciiBytes(model.graphics)], { key: "main", line: "line", exit: "exited", err: "spawn_failed" })];
     case "run_direct":
       if (!canRunDirect(model)) return model;
-      return [{ ...model, phase: "running", action: "direct", doneOk: false, doneReceived: false, processExited: false, unityStable: false, launchFailed: false, gameExitCode: -1, logPath: asciiBytes(""), diagnosticObserved: asciiBytes(""), diagnosticSource: asciiBytes(""), diagnosticExplanation: asciiBytes(""), diagnosticNextStep: asciiBytes(""), activity: asciiBytes("Starting Endfield directly...") }, Cmd.spawn([model.runner, model.script, asciiBytes("run-direct"), asciiBytes("--graphics"), asciiBytes(model.graphics)], { key: "main", line: "line", exit: "exited", err: "spawn_failed" })];
+      return [{ ...model, phase: "running", action: "direct", lastLaunch: "direct", stopRequested: false, sessionStopped: false, sawLauncher: false, sawGame: false, sawUnity: false, doneOk: false, doneReceived: false, processExited: false, unityStable: false, launchFailed: false, gameExitCode: -1, logPath: asciiBytes(""), diagnosticObserved: asciiBytes(""), diagnosticSource: asciiBytes(""), diagnosticExplanation: asciiBytes(""), diagnosticNextStep: asciiBytes(""), activity: asciiBytes("Starting Endfield directly...") }, Cmd.spawn([model.runner, model.script, asciiBytes("run-direct"), asciiBytes("--graphics"), asciiBytes(model.graphics)], { key: "main", line: "line", exit: "exited", err: "spawn_failed" })];
     case "line":
       return [model, engineParse({ line: msg.bytes }, { ok: "parsed", err: "parse_failed" })];
     case "control_line":
       return [model, engineParse({ line: msg.bytes }, { ok: "control_parsed", err: "parse_failed" })];
     case "parsed": {
       const e = msg.result;
-      if (e.event === "status") return [{ ...model, rosetta: e.rosetta, prefixReady: e.prefixReady, launcherReady: e.gryphlinkInstalled, gameReady: e.gameInstalled, wineRunning: e.wineserverRunning, launcherRunning: e.gryphlinkRunning, gameRunning: e.endfieldRunning, engineVersion: e.engineVersion, prefixPath: e.prefixPath, launcherPath: e.gryphlinkPath, gamePath: e.gamePath }, settingsLoad({ prefixPath: e.prefixPath }, { ok: "settings_loaded", err: "settings_failed" })];
-      if (e.event === "step") return { ...model, activity: e.message };
-      if (e.event === "launcher_started") return { ...model, wineRunning: true, launcherRunning: true, activity: asciiBytes("GRYPHLINK started") };
+      if (e.event === "status") return [{ ...model, rosetta: e.rosetta, prefixReady: e.prefixReady, launcherReady: e.gryphlinkInstalled, gameReady: e.gameInstalled, wineRunning: e.wineserverRunning, launcherRunning: e.gryphlinkRunning, gameRunning: e.endfieldRunning, engineVersion: e.engineVersion, wineVersion: e.wineVersion, gryphlinkVersion: e.gryphlinkVersion, setupStep: "none", prefixPath: e.prefixPath, launcherPath: e.gryphlinkPath, gamePath: e.gamePath }, settingsLoad({ prefixPath: e.prefixPath }, { ok: "settings_loaded", err: "settings_failed" })];
+      if (e.event === "step") return applyStep(model, e);
+      if (e.event === "launcher_started") return { ...model, wineRunning: true, launcherRunning: true, sawLauncher: true, activity: asciiBytes("GRYPHLINK started") };
       if (e.event === "launcher_minimized") return { ...model, activity: asciiBytes("GRYPHLINK handed off to Endfield") };
-      if (e.event === "game_started") return { ...model, wineRunning: true, gameRunning: true, activity: asciiBytes("Endfield started") };
-      if (e.event === "unity_started") return { ...model, activity: asciiBytes("Unity appeared; checking stability...") };
+      if (e.event === "game_started") return { ...model, wineRunning: true, gameRunning: true, sawGame: true, activity: asciiBytes("Endfield started") };
+      if (e.event === "unity_started") return { ...model, sawUnity: true, activity: asciiBytes("Unity appeared; checking stability...") };
       if (e.event === "unity_stable") return { ...model, unityStable: true, activity: asciiBytes("Unity stayed alive for 30 seconds") };
       if (e.event === "game_exited") return { ...model, gameRunning: false, gameExitCode: e.exitCode, logPath: e.logPath.length ? e.logPath : model.logPath };
       if (e.event === "failed") return { ...model, launchFailed: true, logPath: e.logPath, activity: asciiBytes("Launch failed") };
@@ -180,6 +312,7 @@ export function update(model: Model, msg: Msg): Model | [Model, Cmd<Msg>] {
       return [{ ...model, processExited: true, exitCode: msg.code }, Cmd.delay("settle", 1000, "settle")];
     case "settle":
       if (!model.processExited) return model;
+      if (intendedStop(model)) return [{ ...model, phase: "checking", action: "status", doneOk: false, doneReceived: false, processExited: false, launcherRunning: false, gameRunning: false, launchFailed: false, sessionStopped: true, errorCode: asciiBytes(""), errorMessage: asciiBytes(""), activity: asciiBytes("Game stopped") }, Cmd.spawn([model.runner, model.script, asciiBytes("status")], { key: "main", line: "line", exit: "exited", err: "spawn_failed" })];
       if (model.exitCode !== 0 || !model.doneReceived || !model.doneOk || model.launchFailed || model.gameExitCode > 0) {
         const failed = { ...model, phase: "failure" as Phase, action: "none" as Action, modal: "failure" as Modal, errorMessage: model.errorMessage.length ? model.errorMessage : asciiBytes("Engine ended without a successful done event") };
         if (model.action === "direct" || model.action === "gryphlink") return [failed, diagnosticsDiagnose({ logPath: model.logPath, gamePath: model.gamePath, prefixPath: model.prefixPath, exitCode: model.gameExitCode }, { ok: "diagnosed", err: "diagnose_failed" })];
@@ -196,14 +329,14 @@ export function update(model: Model, msg: Msg): Model | [Model, Cmd<Msg>] {
       return msg.result.event === "done" && !msg.result.ok ? { ...model, modal: "failure", errorCode: msg.result.errorCode, errorMessage: msg.result.message } : model;
     case "control_exited":
       if (msg.code !== 0) return { ...model, controlBusy: false, modal: "failure", errorCode: asciiBytes("CONTROL_FAILED"), errorMessage: asciiBytes("The control command failed") };
-      if (model.action !== "none") return model;
+      if (model.action !== "none") return { ...model, controlBusy: false };
       return [{ ...model, controlBusy: false, phase: "checking", action: "status", doneOk: false, doneReceived: false, processExited: false }, Cmd.spawn([model.runner, model.script, asciiBytes("status")], { key: "main", line: "line", exit: "exited", err: "spawn_failed" })];
     case "control_failed":
       return { ...model, controlBusy: false, modal: "failure", errorCode: asciiBytes("CONTROL_FAILED"), errorMessage: msg.reason };
-    case "stop_game": if (model.controlBusy || !model.gameRunning) return model; return [{ ...model, controlBusy: true }, Cmd.spawn([model.runner, model.script, asciiBytes("stop-game")], { key: "control", line: "control_line", exit: "control_exited", err: "control_failed" })];
-    case "stop_wine": if (model.controlBusy || !model.wineRunning) return model; return [{ ...model, controlBusy: true }, Cmd.spawn([model.runner, model.script, asciiBytes("stop")], { key: "control", line: "control_line", exit: "control_exited", err: "control_failed" })];
-    case "kill_wine": if (model.controlBusy || !model.wineRunning) return model; return [{ ...model, controlBusy: true }, Cmd.spawn([model.runner, model.script, asciiBytes("kill")], { key: "control", line: "control_line", exit: "control_exited", err: "control_failed" })];
-    case "restart": if (model.controlBusy || !ready(model)) return model; return [{ ...model, controlBusy: true }, Cmd.spawn([model.runner, model.script, asciiBytes("restart")], { key: "control", line: "control_line", exit: "control_exited", err: "control_failed" })];
+    case "stop_game": if (model.controlBusy || !model.gameRunning) return model; return [{ ...model, controlBusy: true, stopRequested: true }, Cmd.spawn([model.runner, model.script, asciiBytes("stop-game")], { key: "control", line: "control_line", exit: "control_exited", err: "control_failed" })];
+    case "stop_wine": if (model.controlBusy || !model.wineRunning) return model; return [{ ...model, controlBusy: true, stopRequested: model.stopRequested || sessionLive(model) }, Cmd.spawn([model.runner, model.script, asciiBytes("stop")], { key: "control", line: "control_line", exit: "control_exited", err: "control_failed" })];
+    case "kill_wine": if (model.controlBusy || !model.wineRunning) return model; return [{ ...model, controlBusy: true, stopRequested: model.stopRequested || sessionLive(model) }, Cmd.spawn([model.runner, model.script, asciiBytes("kill")], { key: "control", line: "control_line", exit: "control_exited", err: "control_failed" })];
+    case "restart": if (model.controlBusy || !ready(model)) return model; return [{ ...model, controlBusy: true, stopRequested: model.stopRequested || sessionLive(model) }, Cmd.spawn([model.runner, model.script, asciiBytes("restart")], { key: "control", line: "control_line", exit: "control_exited", err: "control_failed" })];
     case "settings_open": return { ...model, modal: "settings" };
     case "modal_close":
       if (model.settingsBusy) return model;

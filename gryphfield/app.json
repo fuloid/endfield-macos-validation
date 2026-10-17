@@ -6,6 +6,12 @@
     "description": "A native launcher for Endfield on Apple Silicon Macs.",
     "version": "0.1.0",
     "icons": ["assets/icon.png"],
+    "assets": {
+        "images": [
+            { "id": 1, "path": "assets/gryphlink.png" },
+            { "id": 2, "path": "assets/endfield.png" }
+        ]
+    },
     "platforms": ["macos"],
     "permissions": ["view", "command"],
     "capabilities": ["native_views", "gpu_surfaces", "reveal_path"],
@@ -14,8 +20,10 @@
             {
                 "label": "main",
                 "title": "Gryphfield",
-                "width": 760,
-                "height": 600,
+                "width": 900,
+                "height": 620,
+                "min_width": 820,
+                "min_height": 580,
                 "views": [
                     { "label": "main-canvas", "kind": "gpu_surface", "fill": true, "role": "Gryphfield launcher", "accessibility_label": "Gryphfield", "gpu_backend": "metal", "gpu_pixel_format": "bgra8_unorm", "gpu_present_mode": "timer", "gpu_alpha_mode": "opaque", "gpu_color_space": "srgb", "gpu_vsync": true }
                 ]

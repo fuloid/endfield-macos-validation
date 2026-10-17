@@ -27,6 +27,7 @@ export function parse(request: ParseRequest): EngineEvent {
     unityRunning: flag(running.unity),
     exitCode: typeof raw.exit_code === "number" ? raw.exit_code : -1,
     engineVersion: bytes(engine.version),
+    wineVersion: bytes(engine.wine),
     gryphlinkVersion: bytes(gryphlink.version),
     graphics: bytes(raw.graphics),
     prefixPath: bytes(prefix.path),

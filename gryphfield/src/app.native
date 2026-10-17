@@ -1,169 +1,399 @@
-<column background="background">
-  <row padding="18" gap="12" cross="center" background="surface" window-drag="true">
+<template name="state-icon" args="state">
+  <row width="18" height="18" main="center" cross="center">
+    <if test="{state == 'done'}"><icon name="check-circle" foreground="success" width="18" height="18" /></if>
+    <if test="{state == 'active'}"><icon name="circle-dot" foreground="info" width="18" height="18" /></if>
+    <if test="{state == 'pending'}"><icon name="clock" foreground="text_muted" width="18" height="18" /></if>
+    <if test="{state == 'failed'}"><icon name="x-circle" foreground="destructive" width="18" height="18" /></if>
+  </row>
+</template>
+
+<template name="step-chip" args="label state">
+  <row grow="1" gap="8" cross="center" padding="10" radius="md" background="surface_subtle">
+    <use template="state-icon" state="{state}" />
+    <text grow="1">{label}</text>
+  </row>
+</template>
+
+<template name="check-row" args="label detail state">
+  <row gap="12" cross="center" padding="14" radius="lg" background="surface">
+    <use template="state-icon" state="{state}" />
     <column grow="1" gap="2">
-      <text size="heading">Gryphfield</text>
+      <text>{label}</text>
+      <text foreground="text_muted">{detail}</text>
+    </column>
+    <if test="{state == 'done'}"><badge variant="secondary" foreground="success">Ready</badge></if>
+    <if test="{state == 'active'}"><badge variant="secondary" foreground="info">Working</badge></if>
+    <if test="{state == 'pending'}"><badge variant="outline" foreground="text_muted">Pending</badge></if>
+  </row>
+</template>
+
+<template name="info-row" args="label value">
+  <row gap="8" cross="center">
+    <text foreground="text_muted" grow="1">{label}</text>
+    <text max-width="170" text-alignment="end">{value}</text>
+  </row>
+</template>
+
+<template name="app-tile" args="icon initials name caption dim=no">
+  <column width="236" padding="18" gap="12" radius="xl" background="surface" cross="center">
+    <stack width="128" height="128">
+      <avatar image="{icon}" width="128" height="128" radius="xl" label="{name}">{initials}</avatar>
+      <if test="{dim == 'yes'}"><panel width="128" height="128" radius="xl" background="scrim" /></if>
+    </stack>
+    <column gap="2" cross="center">
+      <text size="lg" text-alignment="center">{name}</text>
+      <text foreground="text_muted" text-alignment="center">{caption}</text>
+    </column>
+    <slot />
+  </column>
+</template>
+
+<template name="session-card">
+  <column background="surface" radius="lg" padding="16" gap="12">
+    <row gap="12" cross="center">
+      <if test="{sessionLive}"><icon name="circle-dot" foreground="info" width="20" height="20" /></if>
+      <if test="{sessionStable}"><icon name="check-circle" foreground="success" width="20" height="20" /></if>
+      <if test="{sessionStopped}"><icon name="check-circle" foreground="text_muted" width="20" height="20" /></if>
+      <if test="{sessionFailed}"><icon name="alert" foreground="destructive" width="20" height="20" /></if>
+      <if test="{sessionIdle}"><icon name="play" foreground="text_muted" width="20" height="20" /></if>
+      <column grow="1" gap="2">
+        <text>{sessionTitle}</text>
+        <if test="{sessionFailed}"><text foreground="text_muted">{errorText}</text></if>
+        <else>
+          <if test="{sessionStopped}"><text foreground="text_muted">Game stopped</text></if>
+          <else><text foreground="text_muted">{activity}</text></else>
+        </else>
+      </column>
+      <if test="{sessionLive}"><badge variant="secondary" foreground="info">Live</badge></if>
+      <if test="{sessionStable}"><badge variant="secondary" foreground="success">Stable</badge></if>
+      <if test="{sessionStopped}"><badge variant="secondary">Stopped</badge></if>
+      <if test="{sessionFailed}"><badge variant="destructive">Failed</badge></if>
+      <if test="{sessionIdle and hasSession}"><badge variant="outline" foreground="text_muted">Ended</badge></if>
+      <if test="{not hasSession}"><badge variant="outline" foreground="text_muted">Idle</badge></if>
+    </row>
+    <if test="{hasSession}">
+      <row gap="8">
+        <if test="{lastLaunch == 'gryphlink'}"><use template="step-chip" label="GRYPHLINK" state="{stepLauncher}" /></if>
+        <use template="step-chip" label="Game" state="{stepGame}" />
+        <use template="step-chip" label="Unity" state="{stepUnity}" />
+        <use template="step-chip" label="Stable 30s" state="{stepStable}" />
+      </row>
+    </if>
+    <if test="{unityStable}"><text foreground="success">Unity stayed alive for at least 30 seconds.</text></if>
+    <if test="{gameRunning}">
+      <row gap="8" main="end">
+        <button size="sm" variant="outline" foreground="destructive" icon="x-circle" on-press="stop_game" disabled="{not gameRunning or controlBusy}">Force stop game</button>
+      </row>
+    </if>
+  </column>
+</template>
+
+<column background="background">
+  <row padding="16" gap="10" cross="center" background="surface" window-drag="true">
+    <column grow="1" gap="2">
+      <text size="lg">Gryphfield</text>
       <text foreground="text_muted">Endfield on your Mac</text>
     </column>
-    <button variant="ghost" size="sm" on-press="refresh" disabled="{action != 'none'}">Refresh</button>
-    <button variant="secondary" size="sm" on-press="settings_open">Settings</button>
+    <badge variant="secondary">Wine {wineText}</badge>
+    <if test="{phase == 'checking' or phase == 'boot'}"><badge variant="outline" foreground="text_muted">Checking</badge></if>
+    <if test="{phase == 'setup'}"><badge variant="secondary" foreground="warning">Setup needed</badge></if>
+    <if test="{phase == 'ready'}"><badge variant="secondary" foreground="success">Ready</badge></if>
+    <if test="{phase == 'running'}"><badge variant="secondary" foreground="info">Running</badge></if>
+    <if test="{phase == 'failure'}"><badge variant="destructive">Needs attention</badge></if>
+    <button variant="ghost" size="sm" icon="refresh-cw" min-width="96" on-press="refresh" disabled="{action != 'none'}">Refresh</button>
+    <button variant="secondary" size="sm" icon="settings" min-width="104" on-press="settings_open">Settings</button>
   </row>
   <separator />
 
-  <scroll grow="1">
-    <column padding="20" gap="16">
-      <if test="{phase == 'checking' or phase == 'boot'}">
-        <column background="surface" radius="lg" padding="18" gap="8">
-          <text size="lg">Checking your setup</text>
-          <text foreground="text_muted">{activity}</text>
-        </column>
-      </if>
+  <row grow="1">
+    <scroll grow="1">
+      <column padding="22" gap="18">
+        <if test="{phase == 'checking' or phase == 'boot'}">
+          <column background="surface" radius="lg" padding="28" gap="10" cross="center">
+            <icon name="refresh-cw" foreground="text_muted" width="28" height="28" />
+            <text size="lg">Checking your setup</text>
+            <text foreground="text_muted">{activity}</text>
+          </column>
+        </if>
 
-      <if test="{phase == 'setup'}">
-        <column background="surface" radius="lg" padding="18" gap="12">
-          <text size="lg">First-run setup</text>
-          <text foreground="text_muted">Everything needed for Gryphfield is inside the app. Rosetta may ask for your Mac password once.</text>
-          <row gap="8" cross="center"><text grow="1">Rosetta 2</text><text>{rosetta}</text></row>
-          <row gap="8" cross="center"><text grow="1">Wine prefix</text><text>{prefixReady}</text></row>
-          <row gap="8" cross="center"><text grow="1">GRYPHLINK</text><text>{launcherReady}</text></row>
-          <text foreground="text_muted">{activity}</text>
-          <button variant="primary" on-press="setup" disabled="{action != 'none'}">Set up Gryphfield</button>
-        </column>
-      </if>
-
-      <if test="{phase == 'ready' or phase == 'running'}">
-        <column gap="10">
-          <text size="lg">Launch</text>
-          <row gap="12">
-            <column background="surface" radius="lg" padding="18" gap="12" grow="1">
-              <text size="lg">GRYPHLINK</text>
-              <text foreground="text_muted">Sign in, install updates, and launch normally.</text>
-              <button variant="primary" on-press="run_launcher" disabled="{not canRunLauncher}">Run GRYPHLINK</button>
-            </column>
-            <column background="surface" radius="lg" padding="18" gap="12" grow="1">
-              <text size="lg">Endfield</text>
-              <text foreground="text_muted">Direct launch is experimental. Open GRYPHLINK to update the game.</text>
-              <button variant="secondary" on-press="run_direct" disabled="{not canRunDirect}">Run Endfield Directly</button>
+        <if test="{phase == 'setup'}">
+          <row gap="14" cross="center">
+            <avatar image="{endfieldIcon}" width="76" height="76" radius="lg" label="Endfield">EF</avatar>
+            <avatar image="{gryphlinkIcon}" width="76" height="76" radius="lg" label="GRYPHLINK">GL</avatar>
+            <column grow="1" gap="4" padding="4">
+              <text size="lg">First-run setup</text>
+              <text foreground="text_muted" wrap="true">Everything needed for Gryphfield is inside the app. Rosetta may ask for your Mac password once.</text>
             </column>
           </row>
-          <if test="{not gameReady}">
-            <text foreground="warning">Direct launch needs config.ini and Endfield.exe in the game folder.</text>
-          </if>
-          <if test="{graphics == 'dxmt'}">
-            <text foreground="text_muted">For GRYPHLINK, tick "Launch with DirectX 11" before Play.</text>
-          </if>
-          <if test="{graphics == 'vulkan'}">
-            <text foreground="text_muted">For GRYPHLINK, untick "Launch with DirectX 11".</text>
-          </if>
-        </column>
-        <column background="surface_subtle" radius="md" padding="12" gap="4">
-          <text>Session</text>
-          <text>{activity}</text>
-          <if test="{unityStable}"><text foreground="success">Unity stayed alive for at least 30 seconds.</text></if>
-        </column>
-      </if>
+          <column gap="8">
+            <use template="check-row" label="Rosetta 2" detail="Runs the x86-64 Wine engine" state="{rosettaCheck}" />
+            <use template="check-row" label="Wine prefix" detail="A private Windows environment for Endfield" state="{prefixCheck}" />
+            <use template="check-row" label="GRYPHLINK" detail="The official launcher, for sign-in and updates" state="{launcherCheck}" />
+          </column>
+          <row gap="10" cross="center" padding="12" radius="md" background="surface_subtle">
+            <if test="{action == 'setup'}"><icon name="circle-dot" foreground="info" width="16" height="16" /></if>
+            <else><icon name="info" foreground="text_muted" width="16" height="16" /></else>
+            <text foreground="text_muted" grow="1" wrap="true">{activity}</text>
+          </row>
+          <button variant="primary" size="lg" icon="download" on-press="setup" disabled="{action != 'none'}">Set up Gryphfield</button>
+        </if>
 
-      <if test="{phase == 'failure'}">
-        <column background="surface" radius="lg" padding="18" gap="10">
-          <text size="lg">Gryphfield needs attention</text>
-          <text>{errorMessage}</text>
-          <button variant="secondary" on-press="refresh" disabled="{action != 'none'}">Check again</button>
+        <if test="{phase == 'ready' or phase == 'running'}">
+          <column gap="2">
+            <text size="lg">Endfield bottle</text>
+            <text foreground="text_muted">Wine {wineText} with {modeLabel} graphics</text>
+          </column>
+          <row gap="16">
+            <if test="{canRunDirect}">
+              <use template="app-tile" on-press="run_direct" icon="{endfieldIcon}" initials="EF" name="Endfield" caption="Direct launch, experimental">
+                <button variant="secondary" size="sm" icon="play" on-press="run_direct" disabled="{not canRunDirect}">Run Endfield Directly</button>
+              </use>
+            </if>
+            <else>
+              <if test="{gameReady}">
+                <use template="app-tile" icon="{endfieldIcon}" initials="EF" name="Endfield" caption="Direct launch, experimental">
+                  <button variant="secondary" size="sm" icon="play" on-press="run_direct" disabled="{not canRunDirect}">Run Endfield Directly</button>
+                </use>
+              </if>
+              <else>
+                <use template="app-tile" icon="{endfieldIcon}" initials="EF" name="Endfield" caption="Game files not found" dim="yes">
+                  <button variant="secondary" size="sm" icon="play" on-press="run_direct" disabled="{not canRunDirect}">Run Endfield Directly</button>
+                </use>
+              </else>
+            </else>
+            <if test="{canRunLauncher}">
+              <use template="app-tile" on-press="run_launcher" icon="{gryphlinkIcon}" initials="GL" name="GRYPHLINK" caption="Sign in, update and play">
+                <button variant="primary" size="sm" icon="play" on-press="run_launcher" disabled="{not canRunLauncher}">Run GRYPHLINK</button>
+              </use>
+            </if>
+            <else>
+              <use template="app-tile" icon="{gryphlinkIcon}" initials="GL" name="GRYPHLINK" caption="Sign in, update and play">
+                <button variant="primary" size="sm" icon="play" on-press="run_launcher" disabled="{not canRunLauncher}">Run GRYPHLINK</button>
+              </use>
+            </else>
+          </row>
+          <column gap="6">
+            <if test="{not gameReady}">
+              <row gap="8" cross="center"><icon name="alert" foreground="warning" width="16" height="16" /><text foreground="warning" grow="1" wrap="true">Direct launch needs config.ini and Endfield.exe in the game folder.</text></row>
+            </if>
+            <if test="{graphics == 'dxmt'}">
+              <row gap="8" cross="center"><icon name="info" foreground="text_muted" width="16" height="16" /><text foreground="text_muted" grow="1" wrap="true">For GRYPHLINK, tick "Launch with DirectX 11" before Play.</text></row>
+            </if>
+            <if test="{graphics == 'vulkan'}">
+              <row gap="8" cross="center"><icon name="info" foreground="text_muted" width="16" height="16" /><text foreground="text_muted" grow="1" wrap="true">For GRYPHLINK, untick "Launch with DirectX 11".</text></row>
+            </if>
+          </column>
+          <use template="session-card" />
+        </if>
+
+        <if test="{phase == 'failure'}">
+          <column background="surface" radius="lg" padding="20" gap="12">
+            <row gap="10" cross="center">
+              <icon name="alert" foreground="destructive" width="22" height="22" />
+              <text size="lg" grow="1">Gryphfield needs attention</text>
+              <if test="{hasErrorCode}"><badge variant="destructive">{errorCode}</badge></if>
+            </row>
+            <text wrap="true">{errorText}</text>
+            <row gap="8">
+              <button variant="primary" icon="refresh-cw" on-press="refresh" disabled="{action != 'none'}">Check again</button>
+              <button variant="ghost" icon="file-text" on-press="show_log" disabled="{not hasLog}">Open log</button>
+            </row>
+          </column>
+          <if test="{hasSession}"><use template="session-card" /></if>
+        </if>
+      </column>
+    </scroll>
+
+    <separator />
+    <column width="300" background="surface">
+      <scroll grow="1">
+        <column padding="14" gap="10">
+          <column gap="5">
+            <text foreground="text_muted">Bottle</text>
+            <use template="info-row" label="Engine" value="{engineText}" />
+            <use template="info-row" label="Wine" value="{wineText}" />
+            <use template="info-row" label="Graphics" value="{modeLabel}" />
+            <row gap="8" cross="center">
+              <text foreground="text_muted" grow="1">Prefix</text>
+              <if test="{prefixReady}"><text foreground="success">Ready</text></if>
+              <else><text foreground="warning">Not set up</text></else>
+            </row>
+            <use template="info-row" label="GRYPHLINK" value="{gryphlinkText}" />
+            <row gap="8" cross="center">
+              <text foreground="text_muted" grow="1">Endfield</text>
+              <if test="{gameRunning}"><text foreground="info">Running</text></if>
+              <else>
+                <if test="{gameReady}"><text foreground="success">Installed</text></if>
+                <else><text foreground="warning">Missing</text></else>
+              </else>
+            </row>
+            <row gap="8" cross="center">
+              <text foreground="text_muted" grow="1">Wine server</text>
+              <if test="{wineRunning}"><text foreground="info">Running</text></if>
+              <else><text>Stopped</text></else>
+            </row>
+          </column>
+          <separator />
+          <column gap="2">
+            <text foreground="text_muted">Actions</text>
+            <list-item icon="settings" on-press="settings_open">Open settings</list-item>
+            <list-item icon="folder-open" on-press="show_prefix">Show Wine prefix</list-item>
+            <list-item icon="folder" on-press="show_game">Show game folder</list-item>
+            <list-item icon="file-text" on-press="show_log" disabled="{not hasLog}">Open last log</list-item>
+          </column>
+          <separator />
+          <column gap="6">
+            <text foreground="text_muted">Wine controls</text>
+            <row gap="6">
+              <button size="sm" variant="outline" grow="1" on-press="stop_wine" disabled="{not wineRunning or controlBusy}">Stop</button>
+              <button size="sm" variant="outline" grow="1" on-press="restart" disabled="{not launcherReady or controlBusy}">Restart</button>
+              <button size="sm" variant="outline" grow="1" on-press="kill_wine" disabled="{not wineRunning or controlBusy}">Kill Wine</button>
+            </row>
+            <button size="sm" variant="secondary" icon="x-circle" on-press="stop_game" disabled="{not gameRunning or controlBusy}">Force stop game</button>
+          </column>
         </column>
-      </if>
+      </scroll>
+      <separator />
+      <column padding="12" gap="8">
+        <text foreground="destructive">Danger zone</text>
+        <row gap="6">
+          <button size="sm" variant="outline" foreground="destructive" grow="1" on-press="uninstall_ask" disabled="{not gameReady or wineRunning or action != 'none' or controlBusy}">Uninstall game...</button>
+          <button size="sm" variant="outline" foreground="destructive" grow="1" on-press="reset_ask" disabled="{wineRunning or action != 'none' or controlBusy}">Reset prefix...</button>
+        </row>
+      </column>
     </column>
-  </scroll>
-
-  <separator />
-  <column background="surface" padding="14" gap="9">
-    <row gap="8" cross="center">
-      <text grow="1" foreground="text_muted">Wine controls</text>
-      <button size="sm" variant="secondary" on-press="stop_game" disabled="{not gameRunning or controlBusy}">Force stop game</button>
-      <button size="sm" variant="ghost" on-press="stop_wine" disabled="{not wineRunning or controlBusy}">Stop</button>
-      <button size="sm" variant="ghost" on-press="restart" disabled="{not launcherReady or controlBusy}">Restart</button>
-      <button size="sm" variant="ghost" on-press="kill_wine" disabled="{not wineRunning or controlBusy}">Kill Wine</button>
-    </row>
-    <row gap="8" cross="center">
-      <text grow="1" foreground="text_muted">Engine {engineVersion} / {modeLabel}</text>
-      <button size="sm" variant="ghost" on-press="uninstall_ask" disabled="{not gameReady or wineRunning or action != 'none' or controlBusy}">Uninstall game</button>
-    </row>
-  </column>
+  </row>
 
   <if test="{modal == 'settings'}">
-    <dialog text="Settings" width="560" on-dismiss="modal_close">
-      <column padding="16" gap="12">
-        <text>Graphics mode</text>
-        <row gap="8">
-          <button size="sm" selected="{graphics == 'dxmt'}" on-press="dxmt">DXMT</button>
-          <button size="sm" selected="{graphics == 'wined3d'}" on-press="wined3d">WineD3D</button>
-          <button size="sm" selected="{graphics == 'vulkan'}" on-press="vulkan">Vulkan</button>
+    <dialog width="600" label="Settings" on-dismiss="modal_close">
+      <column padding="20" gap="14">
+        <row gap="10" cross="center">
+          <icon name="settings" width="20" height="20" />
+          <text size="lg" grow="1">Settings</text>
+          <if test="{not settingsSaved}"><badge variant="secondary" foreground="warning">Unsaved</badge></if>
         </row>
-        <text foreground="text_muted">DXMT uses DirectX 11. Vulkan uses the game's renderer through patched MoltenVK.</text>
-        <text>Extra game arguments</text>
-        <text-field text="{argsEdit.text}" placeholder="Optional arguments for direct launch" on-input="args_edit" />
-        <switch checked="{debugLogging}" on-toggle="toggle_debug">Detailed Wine logging (large logs)</switch>
-        <switch checked="{rosettaAvx}" on-toggle="toggle_avx">Advertise AVX to Rosetta</switch>
         <separator />
-        <text>Installed paths</text>
-        <text foreground="text_muted">Bundled Wine</text><text>{winePath}</text><button size="sm" variant="ghost" on-press="show_wine">Show in Finder</button>
-        <text foreground="text_muted">Wine prefix</text><text>{prefixPath}</text><button size="sm" variant="ghost" on-press="show_prefix">Show in Finder</button>
-        <text foreground="text_muted">GRYPHLINK</text><text>{launcherPath}</text><button size="sm" variant="ghost" on-press="show_launcher">Show in Finder</button>
-        <text foreground="text_muted">Endfield</text><text>{gamePath}</text><button size="sm" variant="ghost" on-press="show_game">Show in Finder</button>
+        <scroll height="380">
+          <column gap="18" padding="2" max-width="540">
+            <column gap="8">
+              <text>Graphics mode</text>
+              <row gap="0">
+                <segmented-control selected="{graphics == 'dxmt'}" on-press="dxmt">DXMT</segmented-control>
+                <segmented-control selected="{graphics == 'wined3d'}" on-press="wined3d">WineD3D</segmented-control>
+                <segmented-control selected="{graphics == 'vulkan'}" on-press="vulkan">Vulkan</segmented-control>
+              </row>
+              <text foreground="text_muted" wrap="true">DXMT uses DirectX 11. Vulkan uses the game's renderer through patched MoltenVK.</text>
+            </column>
+            <column gap="8">
+              <text>Launch options</text>
+              <text-field text="{argsEdit.text}" placeholder="Optional arguments for direct launch" on-input="args_edit" />
+              <text foreground="text_muted" wrap="true">Extra game arguments apply to direct launch only. GRYPHLINK manages its own.</text>
+            </column>
+            <column gap="8">
+              <text>Logging and CPU</text>
+              <switch checked="{debugLogging}" on-toggle="toggle_debug">Detailed Wine logging (large logs)</switch>
+              <switch checked="{rosettaAvx}" on-toggle="toggle_avx">Advertise AVX to Rosetta</switch>
+            </column>
+            <column gap="10">
+              <text>Installed paths</text>
+              <column gap="4" padding="12" radius="md" background="surface_subtle">
+                <row gap="8" cross="center"><text foreground="text_muted" grow="1">Bundled Wine</text><button size="sm" variant="ghost" icon="folder-open" on-press="show_wine">Show in Finder</button></row>
+                <text wrap="true">{winePath}</text>
+              </column>
+              <column gap="4" padding="12" radius="md" background="surface_subtle">
+                <row gap="8" cross="center"><text foreground="text_muted" grow="1">Wine prefix</text><button size="sm" variant="ghost" icon="folder-open" on-press="show_prefix">Show in Finder</button></row>
+                <text wrap="true">{prefixPath}</text>
+              </column>
+              <column gap="4" padding="12" radius="md" background="surface_subtle">
+                <row gap="8" cross="center"><text foreground="text_muted" grow="1">GRYPHLINK</text><button size="sm" variant="ghost" icon="folder-open" on-press="show_launcher">Show in Finder</button></row>
+                <text wrap="true">{launcherPath}</text>
+              </column>
+              <column gap="4" padding="12" radius="md" background="surface_subtle">
+                <row gap="8" cross="center"><text foreground="text_muted" grow="1">Endfield</text><button size="sm" variant="ghost" icon="folder-open" on-press="show_game">Show in Finder</button></row>
+                <text wrap="true">{gamePath}</text>
+              </column>
+            </column>
+            <column gap="8">
+              <text foreground="destructive">Danger zone</text>
+              <column gap="10" padding="12" radius="md" background="surface_subtle" cross="start">
+                <text foreground="text_muted">Recreate the Wine prefix. You can keep the installed game.</text>
+                <button size="sm" variant="destructive" icon="refresh-cw" on-press="reset_ask" disabled="{wineRunning or action != 'none' or controlBusy}">Reset Wine prefix...</button>
+              </column>
+            </column>
+          </column>
+        </scroll>
         <separator />
-        <button size="sm" variant="ghost" on-press="reset_ask" disabled="{wineRunning or action != 'none' or controlBusy}">Reset Wine prefix...</button>
-        <row gap="8"><button variant="primary" on-press="save_settings" disabled="{settingsSaved or settingsBusy}">Save settings</button><button on-press="modal_close" disabled="{settingsBusy}">Close</button></row>
+        <row gap="8" main="end">
+          <button on-press="modal_close" disabled="{settingsBusy}">Close</button>
+          <button variant="primary" icon="save" on-press="save_settings" disabled="{settingsSaved or settingsBusy}">Save settings</button>
+        </row>
       </column>
     </dialog>
   </if>
 
   <if test="{modal == 'failure'}">
-    <dialog text="Launch or engine error" width="520" on-dismiss="modal_close">
-      <column padding="16" gap="10">
-        <text>Observed code: {errorCode}</text>
-        <text>{errorMessage}</text>
-        <text foreground="text_muted">A matching code suggests a possible cause; it does not prove one.</text>
-        <text>Observed: {diagnosticObserved}</text>
-        <text foreground="text_muted">Source: {diagnosticSource}</text>
-        <text>{diagnosticExplanation}</text>
-        <text>{diagnosticNextStep}</text>
-        <text foreground="text_muted">Wine log: {logPath}</text>
-        <row gap="8"><button on-press="show_log" disabled="{not hasLog}">Open log</button><button variant="primary" on-press="modal_close">Close</button></row>
+    <dialog width="560" label="Launch or engine error" on-dismiss="modal_close">
+      <column padding="20" gap="12">
+        <row gap="10" cross="center">
+          <icon name="alert" foreground="destructive" width="22" height="22" />
+          <text size="lg" grow="1">Launch or engine error</text>
+          <if test="{hasErrorCode}"><badge variant="destructive">{errorCode}</badge></if>
+        </row>
+        <text wrap="true">{errorText}</text>
+        <column gap="6" padding="12" radius="md" background="background">
+          <text foreground="text_muted" wrap="true">A matching code suggests a possible cause; it does not prove one.</text>
+          <text wrap="true">Observed: {diagnosticObserved}</text>
+          <if test="{showDiagnosticSource}"><text foreground="text_muted" wrap="true">Source: {diagnosticSource}</text></if>
+          <text wrap="true">{diagnosticExplanation}</text>
+          <text wrap="true">{diagnosticNextStep}</text>
+        </column>
+        <row gap="8" main="end">
+          <button icon="file-text" on-press="show_log" disabled="{not hasLog}">Open log</button>
+          <button variant="primary" on-press="modal_close">Close</button>
+        </row>
       </column>
     </dialog>
   </if>
 
   <if test="{modal == 'uninstall1'}">
-    <dialog text="Uninstall Endfield?" width="500" on-dismiss="modal_close">
-      <column padding="16" gap="10">
-        <text>This removes the game folder only:</text>
-        <text>{gamePath}</text>
-        <row gap="8"><button on-press="modal_close">Cancel</button><button variant="secondary" on-press="uninstall_next">Continue</button></row>
+    <dialog width="500" label="Uninstall Endfield?" on-dismiss="modal_close">
+      <column padding="20" gap="12">
+        <row gap="10" cross="center"><icon name="trash" foreground="destructive" width="20" height="20" /><text size="lg" grow="1">Uninstall Endfield?</text></row>
+        <text wrap="true">This removes the game folder only:</text>
+        <text foreground="text_muted" wrap="true">{gamePath}</text>
+        <row gap="8" main="end"><button on-press="modal_close">Cancel</button><button variant="secondary" on-press="uninstall_next">Continue</button></row>
       </column>
     </dialog>
   </if>
   <if test="{modal == 'uninstall2'}">
-    <dialog text="Confirm game removal" width="500" on-dismiss="modal_close">
-      <column padding="16" gap="10">
-        <text>Second confirmation: delete Endfield game files at the path shown below?</text>
-        <text>{gamePath}</text>
-        <row gap="8"><button on-press="modal_close">Cancel</button><button variant="secondary" on-press="uninstall_confirm">Uninstall game</button></row>
+    <dialog width="500" label="Confirm game removal" on-dismiss="modal_close">
+      <column padding="20" gap="12">
+        <row gap="10" cross="center"><icon name="alert" foreground="destructive" width="20" height="20" /><text size="lg" grow="1">Confirm game removal</text></row>
+        <text wrap="true">Second confirmation: delete Endfield game files at the path shown below?</text>
+        <text foreground="text_muted" wrap="true">{gamePath}</text>
+        <row gap="8" main="end"><button on-press="modal_close">Cancel</button><button variant="destructive" icon="trash" on-press="uninstall_confirm">Uninstall game</button></row>
       </column>
     </dialog>
   </if>
   <if test="{modal == 'reset1'}">
-    <dialog text="Reset Wine prefix?" width="500" on-dismiss="modal_close">
-      <column padding="16" gap="10">
-        <text>The engine will recreate the Wine prefix.</text>
+    <dialog width="500" label="Reset Wine prefix?" on-dismiss="modal_close">
+      <column padding="20" gap="12">
+        <row gap="10" cross="center"><icon name="refresh-cw" foreground="destructive" width="20" height="20" /><text size="lg" grow="1">Reset Wine prefix?</text></row>
+        <text wrap="true">The engine will recreate the Wine prefix.</text>
         <switch checked="{keepGameOnReset}" on-toggle="toggle_keep_game">Preserve installed game files</switch>
-        <row gap="8"><button on-press="modal_close">Cancel</button><button variant="secondary" on-press="reset_next">Continue</button></row>
+        <row gap="8" main="end"><button on-press="modal_close">Cancel</button><button variant="secondary" on-press="reset_next">Continue</button></row>
       </column>
     </dialog>
   </if>
   <if test="{modal == 'reset2'}">
-    <dialog text="Confirm prefix reset" width="500" on-dismiss="modal_close">
-      <column padding="16" gap="10">
-        <text>Second confirmation: reset this prefix?</text><text>{prefixPath}</text>
-        <if test="{keepGameOnReset}"><text>The game folder will be preserved.</text></if>
-        <if test="{not keepGameOnReset}"><text foreground="destructive">The installed game will be removed.</text></if>
-        <row gap="8"><button on-press="modal_close">Cancel</button><button variant="secondary" on-press="reset_confirm">Reset prefix</button></row>
+    <dialog width="500" label="Confirm prefix reset" on-dismiss="modal_close">
+      <column padding="20" gap="12">
+        <row gap="10" cross="center"><icon name="alert" foreground="destructive" width="20" height="20" /><text size="lg" grow="1">Confirm prefix reset</text></row>
+        <text wrap="true">Second confirmation: reset this prefix?</text>
+        <text foreground="text_muted" wrap="true">{prefixPath}</text>
+        <if test="{keepGameOnReset}"><text wrap="true">The game folder will be preserved.</text></if>
+        <if test="{not keepGameOnReset}"><text foreground="destructive" wrap="true">The installed game will be removed.</text></if>
+        <row gap="8" main="end"><button on-press="modal_close">Cancel</button><button variant="destructive" on-press="reset_confirm">Reset prefix</button></row>
       </column>
     </dialog>
   </if>

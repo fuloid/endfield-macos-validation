@@ -15,6 +15,7 @@ export type EngineEvent = {
   readonly unityRunning: boolean;
   readonly exitCode: number;
   readonly engineVersion: Uint8Array;
+  readonly wineVersion: Uint8Array;
   readonly gryphlinkVersion: Uint8Array;
   readonly graphics: Uint8Array;
   readonly prefixPath: Uint8Array;
