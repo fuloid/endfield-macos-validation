@@ -88,11 +88,18 @@ C
     command -v x86_64-w64-mingw32-gcc >/dev/null || die 'Install mingw-w64 (see MAC_HANDOFF.md).'
     mkdir -p "$BUILD"
     [ ! -f "$BUILD/Makefile" ] || die 'Build already configured; use build or a new WORK_DIR.'
+    # Load the runtime libraries by their install-name leaf (e.g. libfreetype.6.dylib), not an
+    # absolute Homebrew path: `bundle` copies them into $PREFIX/lib/external and the launcher
+    # sets DYLD_FALLBACK_LIBRARY_PATH to that folder, so users need no Homebrew.
+    local ft_leaf tls_leaf vk_leaf
+    ft_leaf="$(basename "$(otool -D "$freetype_prefix/lib/libfreetype.dylib" | tail -1)")"
+    tls_leaf="$(basename "$(otool -D "$gnutls_prefix/lib/libgnutls.dylib" | tail -1)")"
+    vk_leaf="$(basename "$(otool -D "$mvk_prefix/lib/libMoltenVK.dylib" | tail -1)")"
     (cd "$BUILD" && CC="${CC:-/usr/bin/clang -arch x86_64}" CXX="${CXX:-/usr/bin/clang++ -arch x86_64}" \
         OBJC="${OBJC:-/usr/bin/clang -arch x86_64}" \
-        ac_cv_lib_soname_freetype="$freetype_prefix/lib/libfreetype.dylib" \
-        ac_cv_lib_soname_gnutls="$gnutls_prefix/lib/libgnutls.dylib" \
-        ac_cv_lib_soname_vulkan="$mvk_prefix/lib/libMoltenVK.dylib" "$SOURCE/configure" \
+        ac_cv_lib_soname_freetype="$ft_leaf" \
+        ac_cv_lib_soname_gnutls="$tls_leaf" \
+        ac_cv_lib_soname_vulkan="$vk_leaf" "$SOURCE/configure" \
         --build=x86_64-apple-darwin --host=x86_64-apple-darwin \
         --enable-archs=x86_64 --with-mingw --disable-tests --without-x \
         --with-freetype --with-gnutls --with-vulkan --without-gstreamer \
@@ -112,9 +119,60 @@ build() {
     file "$PREFIX"/bin/wine* | tee "$WORK_DIR/binaries.txt"
     echo "Installed into $PREFIX; continue with MAC_HANDOFF.md."
 }
+bundle() {
+    # Copy the runtime libraries Wine loads (and every non-system library they depend on) into
+    # $PREFIX/lib/external, point their cross-references at the same folder, and re-sign them.
+    require_mac
+    [ -x "$PREFIX/bin/wine" ] || die 'Run build first.'
+    local ext="$PREFIX/lib/external" queue=() seen=" " lib leaf dep dep_leaf src
+    rm -rf "$ext"
+    mkdir -p "$ext"
+    resolve() {   # a dependency reference -> a real file under /usr/local, or nothing
+        case "$1" in
+            /usr/local/*) [ -e "$1" ] && echo "$1" ;;
+            @rpath/*|@loader_path/*) [ -e "/usr/local/lib/${1##*/}" ] && echo "/usr/local/lib/${1##*/}" ;;
+        esac
+    }
+    for lib in freetype/lib/libfreetype.dylib gnutls/lib/libgnutls.dylib molten-vk/lib/libMoltenVK.dylib; do
+        queue+=("$(otool -D "/usr/local/opt/$lib" | tail -1)")
+    done
+    while [ ${#queue[@]} -gt 0 ]; do
+        lib="${queue[0]}"
+        queue=("${queue[@]:1}")
+        leaf="${lib##*/}"
+        case "$seen" in *" $leaf "*) continue ;; esac
+        seen="$seen$leaf "
+        src="$(resolve "$lib")"
+        [ -n "$src" ] || die "Cannot find $lib"
+        cp -L "$src" "$ext/$leaf"
+        chmod u+w "$ext/$leaf"
+        install_name_tool -id "@rpath/$leaf" "$ext/$leaf" 2>/dev/null || die "install_name_tool -id failed: $leaf"
+        for dep in $(otool -L "$ext/$leaf" | tail -n +2 | awk '{print $1}'); do
+            case "$dep" in
+                /usr/local/*|@rpath/*|@loader_path/*)
+                    dep_leaf="${dep##*/}"
+                    [ "$dep_leaf" = "$leaf" ] && continue
+                    install_name_tool -change "$dep" "@loader_path/$dep_leaf" "$ext/$leaf" 2>/dev/null || die "install_name_tool -change failed: $leaf"
+                    queue+=("$dep") ;;
+            esac
+        done
+    done
+    for lib in "$ext"/*.dylib; do
+        codesign --force --sign - "$lib" >/dev/null 2>&1 || die "codesign failed: $lib"
+    done
+    # nothing may still point into Homebrew, neither the bundled libraries nor Wine itself
+    local leftovers
+    leftovers="$( { otool -L "$ext"/*.dylib; otool -L "$PREFIX"/bin/* "$PREFIX"/lib/wine/x86_64-unix/*.so 2>/dev/null; } \
+        | grep -E '^\s+/usr/local/|^\s+/opt/homebrew/' || true)"
+    [ -z "$leftovers" ] || die "Homebrew references remain: $leftovers"
+    (cd "$ext" && for lib in *.dylib; do echo "$lib $(shasum -a 256 "$lib" | cut -d' ' -f1)"; done) > "$ext/BUNDLED.txt"
+    echo "Bundled $(ls "$ext"/*.dylib | wc -l | tr -d ' ') libraries into $ext ($(du -sh "$ext" | cut -f1))"
+    cat "$ext/BUNDLED.txt"
+}
 case "${1:-help}" in
     prepare) prepare ;;
     configure) configure ;;
     build) build ;;
-    *) echo 'usage: bash build-mac.sh prepare|configure|build'; exit 1 ;;
+    bundle) bundle ;;
+    *) echo 'usage: bash build-mac.sh prepare|configure|build|bundle'; exit 1 ;;
 esac

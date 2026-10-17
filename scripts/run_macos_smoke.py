@@ -26,9 +26,14 @@ def main():
         wine = prefix / 'bin/wine64'
     if not wine.is_file():
         raise SystemExit('Installed Wine loader is missing.')
+    # Runtime libraries are bundled in wine-install/lib/external and found through
+    # DYLD_FALLBACK_LIBRARY_PATH, as in the app. Wine and the probes are started directly (they
+    # are x86_64, so Rosetta runs them): /usr/bin/arch is SIP-protected and would strip DYLD_*.
+    external = prefix / 'lib/external'
     env = dict(os.environ, WINEPREFIX=str(args.work / 'ci-prefix'), WINEARCH='win64',
                ROSETTA_ADVERTISE_AVX='1', WINEFSYNC='0', WINEESYNC='0', WINENTSYNC='0',
-               WINEDLLOVERRIDES='mscoree,mshtml,winedbg.exe=', WINEDEBUG='+seh')
+               WINEDLLOVERRIDES='mscoree,mshtml,winedbg.exe=', WINEDEBUG='+seh',
+               DYLD_FALLBACK_LIBRARY_PATH=f'{external}:/usr/lib')
     report = {'host': platform.platform(), 'architecture': platform.machine(), 'tests': {},
               'scope': 'Wine/Rosetta CPU/exception smoke tests only; no graphics or game.'}
 
@@ -53,24 +58,26 @@ def main():
             if candidate.is_file():
                 config = candidate.read_text()
                 break
-        fallback = {'SONAME_LIBFREETYPE': '/usr/local/opt/freetype/lib/libfreetype.dylib',
-                    'SONAME_LIBGNUTLS': '/usr/local/opt/gnutls/lib/libgnutls.dylib',
-                    'SONAME_LIBVULKAN': '/usr/local/opt/molten-vk/lib/libMoltenVK.dylib'}
         libraries = []
         for macro in ['SONAME_LIBFREETYPE', 'SONAME_LIBGNUTLS', 'SONAME_LIBVULKAN']:
             match = re.search(r'^#define ' + macro + r' "([^"]+)"', config, re.M)
-            path = match.group(1) if match else (None if config else fallback[macro])
-            if not path or not Path(path).is_absolute():
-                raise RuntimeError(f'{macro} must specify an absolute runtime library path')
+            if not match:
+                raise RuntimeError(f'{macro} missing from the build configuration')
+            path = Path(match.group(1))
+            if not path.is_absolute():   # leaf name: must be bundled in lib/external
+                path = external / path.name
+            if not path.is_file():
+                raise RuntimeError(f'{macro}: {path} is not bundled')
             libraries.append(path)
+        report['bundled_libraries'] = sorted(p.name for p in external.glob('*.dylib'))
         execute('compile-dlopen-probe', ['/usr/bin/clang', '-arch', 'x86_64', '-O2', '-Wall', '-Wextra',
                                         '-Werror', ROOT / 'scripts/mac_dlopen_probe.c', '-o', out / 'dlopen-probe'], 60)
-        execute('load-runtime-libraries', ['arch', '-x86_64', out / 'dlopen-probe', *libraries], 60)
+        execute('load-runtime-libraries', [out / 'dlopen-probe', *libraries], 60)
         execute('compile-probe', ['x86_64-w64-mingw32-gcc', '-O2', '-static', '-Wall', '-Wextra',
                                  '-Werror', HANDOFF / 'rosetta_probe.c', '-o', out / 'rosetta_probe.exe'], 120)
-        execute('version', ['arch', '-x86_64', wine, '--version'], 60)
-        execute('wineboot', ['arch', '-x86_64', wine, 'wineboot', '-u'], 240)
-        execute('probe', ['arch', '-x86_64', wine, out / 'rosetta_probe.exe'], 120)
+        execute('version', [wine, '--version'], 60)
+        execute('wineboot', [wine, 'wineboot', '-u'], 240)
+        execute('probe', [wine, out / 'rosetta_probe.exe'], 120)
         content = (out / 'probe.log').read_text(errors='replace')
         if 'Runtime checks: 8, failures: 0' not in content or content.count('PASS ') != 8:
             raise RuntimeError('Probe did not report all eight passing checks')

@@ -4,7 +4,7 @@
 
 ## Transfer
 
-Copy and extract `mac-handoff.zip` to the Mac. It contains the selected Wine patches (six base patches plus the ten-patch ace-core port), build script, helper tests, a Windows runtime probe and source, verification evidence, licenses, and the optional MoltenVK patch set/script. The source clones and Windows audit snapshots are not needed. Run commands from the extracted directory.
+Copy and extract `mac-handoff.zip` to the Mac. It contains the selected Wine patches (seven base patches plus the ten-patch ace-core port), build script, helper tests, a Windows runtime probe and source, verification evidence, licenses, and the optional MoltenVK patch set/script. The source clones and Windows audit snapshots are not needed. Run commands from the extracted directory.
 
 ## Baseline and corrections
 
@@ -17,6 +17,7 @@ Apply exactly these patches in filename order (`build-mac.sh prepare` does this)
 - `0003-ntdll-rosetta-crossover-workarounds-upstream.patch`: CrossOver 26.3 Rosetta workarounds FineWine gets implicitly (CW HACKs 22131, 24256, 24265, 24945, 25719, 18947): fake success for debug-register writes, live MXCSR in exception contexts and after SIGSYS, retry write/exec faults on executable pages by toggling PROT_EXEC, and retranslate code written cross-process. CI run 38845562248 showed upstream Wine without 24945 crashing when a program rewrites an executed RWX page under Rosetta.
 - FineWine misc `0009` and `0010`: the game-specific dispatcher workaround, missing from upstream Wine.
 - FineWine misc `0011`: relative waits using QPC, also missing from upstream Wine.
+- `0012` (mary-ext `crossover-wine-endfield` `macos/0002`): Darwin's `select()` rejects timeouts over 10^8 seconds, which turned very long sleeps into a busy loop; waits are capped at one day per `select()` and recomputed.
 - `0101`–`0115`: upstream-11.19 port of FineWine's `ace-core` series (FineWine `cc4cefa`, 2026-10-15). The game's late-2026 `ACE-CORE*.sys` driver replaced `ACE-BASE.sys`; without this series it bug-checks at `DriverEntry` (`KeBugCheckEx 0x65636157`) and the game does not launch. Ported: `0001` (new imports), `0003` (kernel return address for `DriverInit`, the entry bugcheck fix), `0004`, `0005`, `0006` (real `PsGetProcessExitStatus`), `0007` (an `lsass.exe` process; here wineboot starts upstream's `SamSs` service), `0010` (section views stay mapped while a locked MDL uses them), `0012`, `0014`, `0015`. Already in upstream 11.19 and omitted: `0002`, `0008`, `0009`, `0011`, `0013`, `0016`. Not ported: `0017`–`0019`, which FineWine tested and found did not change the outcome. Details: `acecore-verification.json` and `AUDIT.md`.
 
 The complete selection applies with normal context to a fresh snapshot and reproduces the reviewed tree exactly. Wine 11.19 already exports the kernel functions covered by the em-backports series; do not reapply those old patches. Export presence and source review do not prove ACE compatibility.
@@ -51,7 +52,10 @@ export WORK_DIR="$PWD/mac-work"
 bash build-mac.sh prepare
 bash build-mac.sh configure
 JOBS=6 bash build-mac.sh build
+bash build-mac.sh bundle
 ```
+
+`bundle` copies FreeType, GnuTLS, MoltenVK and every non-system library they need into `$WORK_DIR/wine-install/lib/external`, points them at each other, ad-hoc signs them, and fails if anything still references Homebrew. Wine loads them by file name, so whoever runs Wine must set `DYLD_FALLBACK_LIBRARY_PATH` to that folder; the installed Wine then runs without Intel Homebrew.
 
 The script creates a new pinned source checkout, applies the selected patches, and installs into `$WORK_DIR/wine-install`. It refuses to overwrite an existing source directory. Logs are in `$WORK_DIR`. Start with six build jobs on the Air; lower this if memory pressure becomes a problem. Previous 2â€“4 hour estimates were not measurements of this full standalone build.
 
@@ -72,12 +76,15 @@ export ROSETTA_ADVERTISE_AVX=1
 export WINEFSYNC=0
 export WINEESYNC=0
 export WINENTSYNC=0
+export DYLD_FALLBACK_LIBRARY_PATH="$WORK_DIR/wine-install/lib/external:/usr/lib"
 file "$WINEBIN"
 "$WINEBIN" --version
 "$WINEBIN" wineboot -u > "$WORK_DIR/wineboot.log" 2>&1
 WINEDEBUG=+seh "$WINEBIN" "$PWD/rosetta_probe.exe" > "$WORK_DIR/rosetta-probe.log" 2>&1
 cat "$WORK_DIR/rosetta-probe.log"
 ```
+
+Start Wine directly as above, not through `arch -x86_64`: Wine is x86_64, so Rosetta runs it anyway, and `/usr/bin/arch` is SIP-protected, so macOS strips `DYLD_*` variables and the bundled libraries would not be found.
 
 Expected: a working x86_64 Wine runtime and **eight passing probe checks**. The probe executes actual machine instructions and handles Windows exceptions; it is separate from the mocked helper tests. It covers five NOP forms (including ENDBR64 and `0F 1F /1`), XGETBV, `mov rax,cr3` yielding `c0000096`, and UD2 yielding `c000001d`. NOP faults should be consumed by Wine, not reach the program's exception handler. It does not load ACE or prove kernel-driver support.
 
