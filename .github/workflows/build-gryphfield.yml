@@ -174,9 +174,13 @@ jobs:
           native="$NATIVE_SDK_PATH/zig-out/bin/native"
           zig version
           "$native" check
+          "$native" build   # the app binary and its service host (zig-out/bin)
+          ls -la zig-out/bin
           "$native" package --target macos --signing none
           app="$(find . -name '*.app' -type d -prune -not -path './node_modules/*' | head -1)"
           test -n "$app" || { echo 'no .app produced'; exit 1; }
+          ls -la "$app/Contents/MacOS"
+          file "$app/Contents/MacOS"/* | grep -q 'Mach-O' || { echo 'the package has no app executable'; exit 1; }
           echo "APP_SRC=$PWD/$app" >> "$GITHUB_ENV"
           echo "Built $app"
       - name: Embed the engine and sign ad hoc
