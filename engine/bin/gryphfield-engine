@@ -1,0 +1,399 @@
+#!/bin/bash
+# gryphfield-engine: runs GRYPHLINK and Arknights: Endfield on the bundled Wine for the Gryphfield UI.
+#
+# Output protocol: one JSON object per line on stdout; human-readable text goes to stderr and
+# ~/Library/Logs/Gryphfield/engine.log. Every command ends with
+#   {"event":"done","ok":true|false,"error":{"code":"...","message":"..."}}
+#
+# Commands: status | setup | run-gryphlink [--graphics MODE] | run-direct [--graphics MODE] [-- ARGS]
+#           stop-game | stop | kill | restart | logs | uninstall-game --yes
+#           reset-prefix --yes [--keep-game]
+# Graphics modes: dxmt (default) | wined3d | vulkan
+#
+# Written for macOS /bin/bash 3.2: no associative arrays, no mapfile, no `timeout` binary.
+
+ENGINE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+SUPPORT="${GRYPHFIELD_HOME:-$HOME/Library/Application Support/Gryphfield}"
+LOGS="${GRYPHFIELD_LOGS:-$HOME/Library/Logs/Gryphfield}"
+PREFIX="$SUPPORT/prefix"
+CONFIG="$SUPPORT/config.json"
+GL="$PREFIX/drive_c/GRYPHLINK"
+GAME="$GL/games/Arknights Endfield"
+GL_WIN='C:\GRYPHLINK'
+GAME_WIN='C:\GRYPHLINK\games\Arknights Endfield'
+WATCH="$ENGINE/tools/gryphfield-watch.exe"
+DIRECT="$ENGINE/tools/direct-launch.exe"
+PREFIX_MARK="$PREFIX/.gryphfield-prefix"
+mkdir -p "$SUPPORT" "$LOGS"
+ENGINE_LOG="$LOGS/engine.log"
+
+# ---------------------------------------------------------------------------- output helpers
+
+jstr() {   # JSON string literal
+    printf '"%s"' "$(printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | tr '\t\r\n' '   ')"
+}
+jbool() { if "$@"; then printf true; else printf false; fi; }
+emit() { printf '%s\n' "$1"; }
+say() {
+    printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "$ENGINE_LOG"
+    printf '%s\n' "$*" >&2
+}
+finish_ok() { emit '{"event":"done","ok":true}'; exit 0; }
+fail() {   # code message
+    say "error $1: $2"
+    emit "{\"event\":\"done\",\"ok\":false,\"error\":{\"code\":$(jstr "$1"),\"message\":$(jstr "$2")}}"
+    exit 1
+}
+step() {   # step state message
+    say "setup $1 $2: $3"
+    emit "{\"event\":\"step\",\"step\":\"$1\",\"state\":\"$2\",\"message\":$(jstr "$3")}"
+}
+
+run_timeout() {   # seconds command... : run, killing it after the given time (macOS has no timeout)
+    local limit=$1 pid watchdog rc
+    shift
+    "$@" &
+    pid=$!
+    ( sleep "$limit"; kill -9 "$pid" 2>/dev/null ) &
+    watchdog=$!
+    wait "$pid"
+    rc=$?
+    kill "$watchdog" 2>/dev/null
+    wait "$watchdog" 2>/dev/null
+    return $rc
+}
+
+wait_for_exit() {   # seconds pid: wait for a child, killing it if it outlives the limit
+    local left=$1
+    while [ "$left" -gt 0 ] && kill -0 "$2" 2>/dev/null; do sleep 1; left=$((left - 1)); done
+    kill "$2" 2>/dev/null
+    wait "$2" 2>/dev/null
+}
+
+# ---------------------------------------------------------------------------- state
+
+cfg() {   # key default: read a top-level config.json value (plutil reads JSON)
+    local value
+    if [ -f "$CONFIG" ] && value="$(/usr/bin/plutil -extract "$1" raw -o - "$CONFIG" 2>/dev/null)"; then
+        printf '%s' "$value"
+    else
+        printf '%s' "$2"
+    fi
+}
+rosetta_ok() { /usr/bin/arch -x86_64 /usr/bin/true 2>/dev/null; }
+prefix_ready() { [ -f "$PREFIX/system.reg" ] && [ -f "$PREFIX_MARK" ]; }
+gryphlink_installed() { [ -f "$GL/Launcher.exe" ] && [ -n "$(gryphlink_version)" ]; }
+game_installed() { [ -f "$GAME/config.ini" ] && [ -f "$GAME/Endfield.exe" ]; }
+gryphlink_version() {   # newest <version>/Games.exe, compared numerically
+    local dir
+    for dir in "$GL"/*/; do
+        dir="${dir%/}"
+        dir="${dir##*/}"
+        case "$dir" in
+            [0-9]*.[0-9]*) [ -f "$GL/$dir/Games.exe" ] && printf '%s\n' "$dir" ;;
+        esac
+    done | sort -t. -k1,1n -k2,2n -k3,3n -k4,4n | tail -1
+}
+engine_version_json() {
+    if [ -f "$ENGINE/VERSION.json" ]; then tr -d '\n' < "$ENGINE/VERSION.json"; else printf '{}'; fi
+}
+wineserver_running() { /usr/bin/pgrep -f -- "$ENGINE/wine.*wineserver" >/dev/null 2>&1; }
+
+graphics_mode() {   # --graphics flag, else config, else dxmt
+    local mode="${OPT_GRAPHICS:-$(cfg graphics dxmt)}"
+    case "$mode" in dxmt|wined3d|vulkan) printf '%s' "$mode" ;; *) printf dxmt ;; esac
+}
+
+# Select the Wine tree and environment for a graphics mode. wine-dxmt is the same Wine with
+# DXMT's d3d11/dxgi/d3d10core/winemetal in place of Wine's own (see engine/assemble.sh).
+use_wine() {   # mode
+    MODE="$1"
+    TREE="$ENGINE/wine"
+    if [ "$MODE" = dxmt ]; then
+        if [ -x "$ENGINE/wine-dxmt/bin/wine" ]; then TREE="$ENGINE/wine-dxmt"; else say "DXMT is missing; using wined3d"; MODE=wined3d; fi
+    fi
+    WINE="$TREE/bin/wine"
+    WINESERVER="$TREE/bin/wineserver"
+    export WINEPREFIX="$PREFIX" WINEARCH=win64 WINEFSYNC=0 WINEESYNC=0 WINENTSYNC=0
+    # Runtime libraries are bundled; the patched MoltenVK comes first. Wine is started directly,
+    # never through /usr/bin/arch, which is SIP-protected and would drop DYLD_* variables.
+    export DYLD_FALLBACK_LIBRARY_PATH="$ENGINE/moltenvk:$ENGINE/wine/lib/external:/usr/lib"
+    export WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d'
+    if [ "$(cfg rosetta_avx true)" != false ]; then export ROSETTA_ADVERTISE_AVX=1; else unset ROSETTA_ADVERTISE_AVX; fi
+    if [ "$(cfg debug_logging false)" = true ]; then
+        export WINEDEBUG='+seh,+loaddll,+ntoskrnl,+process'
+    else
+        export WINEDEBUG='fixme-all,err+all,warn+seh'
+    fi
+    unset WINE_D3D_CONFIG
+    GAME_ARGS=()
+    case "$MODE" in
+        dxmt) GAME_ARGS=(-force-d3d11) ;;
+        wined3d) GAME_ARGS=(-force-d3d11); export WINE_D3D_CONFIG='renderer=vulkan' ;;
+        vulkan) GAME_ARGS=(-force-vulkan); export WINE_D3D_CONFIG='renderer=vulkan' ;;
+    esac
+}
+
+running_json() {   # {"wineserver":..,"gryphlink":..,"endfield":..,"unity":..}
+    local server=false procs="" gryphlink=false endfield=false unity=false
+    if wineserver_running; then
+        server=true
+        use_wine wined3d
+        procs="$(run_timeout 20 "$WINE" "$WATCH" once 2>>"$ENGINE_LOG" | tr -d '\r' | grep '"processes"' | tail -1)"
+        case "$procs" in *'"gryphlink":true'*) gryphlink=true ;; esac
+        case "$procs" in *'"endfield":true'*) endfield=true ;; esac
+        case "$procs" in *'"unity":true'*) unity=true ;; esac
+    fi
+    printf '{"wineserver":%s,"gryphlink":%s,"endfield":%s,"unity":%s}' "$server" "$gryphlink" "$endfield" "$unity"
+}
+game_running() { case "$(running_json)" in *'"endfield":true'*) return 0 ;; esac; return 1; }
+
+# ---------------------------------------------------------------------------- commands
+
+cmd_status() {
+    emit "{\"event\":\"status\",\"engine\":$(engine_version_json),\"rosetta\":$(jbool rosetta_ok),\
+\"prefix\":{\"path\":$(jstr "$PREFIX"),\"ready\":$(jbool prefix_ready)},\
+\"gryphlink\":{\"path\":$(jstr "$GL"),\"installed\":$(jbool gryphlink_installed),\"version\":$(jstr "$(gryphlink_version)")},\
+\"game\":{\"path\":$(jstr "$GAME"),\"installed\":$(jbool game_installed)},\
+\"running\":$(running_json),\"graphics\":$(jstr "$(graphics_mode)")}"
+    finish_ok
+}
+
+setup_prefix() {
+    if prefix_ready; then step prefix skipped "The Wine prefix is ready"; return 0; fi
+    step prefix start "Creating the Wine prefix (takes a minute or two)"
+    use_wine wined3d
+    mkdir -p "$PREFIX"
+    if ! run_timeout 900 "$WINE" wineboot -u >> "$LOGS/setup.log" 2>&1 || [ ! -f "$PREFIX/system.reg" ]; then
+        step prefix error "wineboot failed; see $LOGS/setup.log"
+        fail PREFIX_FAILED "Creating the Wine prefix failed. See $LOGS/setup.log."
+    fi
+    run_timeout 60 "$WINESERVER" -w 2>/dev/null
+    engine_version_json > "$PREFIX_MARK"
+    step prefix done "The Wine prefix is ready"
+}
+
+setup_gryphlink() {
+    local source="$ENGINE/gryphlink/GRYPHLINK"
+    [ -d "$source" ] || fail GRYPHLINK_MISSING "The bundled GRYPHLINK launcher is missing from the app."
+    if gryphlink_installed; then step gryphlink skipped "GRYPHLINK is installed"; return 0; fi
+    step gryphlink start "Copying GRYPHLINK into the prefix"
+    mkdir -p "$GL"
+    # Copy only what is missing: never overwrite files GRYPHLINK has updated itself.
+    if ! /usr/bin/rsync -a --ignore-existing "$source/" "$GL/" >> "$LOGS/setup.log" 2>&1; then
+        /bin/cp -Rn "$source/" "$GL/" >> "$LOGS/setup.log" 2>&1
+    fi
+    if ! gryphlink_installed; then
+        step gryphlink error "Copying GRYPHLINK failed"
+        fail GRYPHLINK_FAILED "Copying GRYPHLINK into the prefix failed. See $LOGS/setup.log."
+    fi
+    step gryphlink done "GRYPHLINK $(gryphlink_version) is installed"
+}
+
+cmd_setup() {
+    # Files in a downloaded app carry the quarantine flag; the Wine binaries must not.
+    /usr/bin/xattr -dr com.apple.quarantine "$ENGINE" 2>/dev/null
+    if rosetta_ok; then
+        step rosetta skipped "Rosetta 2 is installed"
+    else
+        step rosetta start "Installing Rosetta 2; macOS asks for your password"
+        /usr/bin/osascript -e 'do shell script "/usr/sbin/softwareupdate --install-rosetta --agree-to-license" with administrator privileges' \
+            >> "$LOGS/setup.log" 2>&1
+        if ! rosetta_ok; then
+            step rosetta error "Rosetta 2 was not installed"
+            fail ROSETTA_FAILED "Rosetta 2 is required. Install it with: softwareupdate --install-rosetta"
+        fi
+        step rosetta done "Rosetta 2 is installed"
+    fi
+    setup_prefix
+    setup_gryphlink
+    finish_ok
+}
+
+handle_event() {   # one watcher line
+    local line="${1%$'\r'}"
+    case "$line" in
+        '{"event":'*) ;;
+        *) [ -n "$line" ] && printf '%s\n' "$line" >> "$WLOG"; return ;;
+    esac
+    case "$line" in
+        *'"event":"game_started"'*) GAME_STARTED=1 ;;
+        *'"event":"unity_stable"'*) UNITY_STABLE=1 ;;
+        *'"event":"failed"'*)
+            FAILED=1
+            FAIL_REASON="$(printf '%s' "$line" | sed -n 's/.*"reason":"\([^"]*\)".*/\1/p')"
+            line="${line%?},\"log\":$(jstr "$WLOG")}" ;;
+        *'"event":"game_exited"'*)
+            EXIT_CODE="$(printf '%s' "$line" | sed -n 's/.*"exit_code":\([0-9-]*\).*/\1/p')"
+            line="${line%?},\"log\":$(jstr "$WLOG")}" ;;
+    esac
+    say "event: $line"
+    emit "$line"
+}
+
+cmd_run() {   # gryphlink|direct [--graphics MODE] [-- game args]
+    local kind="$1" version extra arg main_pid watch_pid fifo line start_timeout main_rc
+    shift
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --graphics) OPT_GRAPHICS="$2"; shift 2 ;;
+            --) shift; break ;;
+            *) fail BAD_ARGUMENT "Unknown argument: $1" ;;
+        esac
+    done
+    prefix_ready && gryphlink_installed || fail NOT_READY "Setup is not complete. Run setup first."
+    [ "$kind" = gryphlink ] || game_installed || fail GAME_MISSING "Endfield is not installed. Install it with GRYPHLINK first."
+    game_running && fail ALREADY_RUNNING "Endfield is already running."
+    version="$(gryphlink_version)"
+    use_wine "$(graphics_mode)"
+
+    EXTRA=()
+    extra="$(cfg extra_args '')"
+    if [ -n "$extra" ]; then   # split like a shell would, without evaluating anything
+        while IFS= read -r arg; do EXTRA+=("$arg"); done < <(printf '%s' "$extra" | xargs -n1 printf '%s\n' 2>/dev/null)
+    fi
+    for arg in "$@"; do EXTRA+=("$arg"); done
+
+    WLOG="$LOGS/wine-$(date +%Y%m%d-%H%M%S).log"
+    ln -sf "$(basename "$WLOG")" "$LOGS/latest-wine.log"
+    {
+        echo "# Gryphfield $kind launch, $(date)"
+        echo "# engine: $(engine_version_json)"
+        echo "# graphics: $MODE (tree $TREE), WINEDEBUG=$WINEDEBUG, ROSETTA_ADVERTISE_AVX=${ROSETTA_ADVERTISE_AVX:-0}"
+        echo "# GRYPHLINK $version; game args: ${GAME_ARGS[*]} ${EXTRA[*]}"
+    } > "$WLOG"
+    printf '%s %s\n' "$kind" "$MODE" > "$SUPPORT/last-run"
+    say "run-$kind: graphics $MODE, log $WLOG"
+
+    GAME_STARTED=0 UNITY_STABLE=0 FAILED=0 FAIL_REASON="" EXIT_CODE=""
+    fifo="$(mktemp -u "${TMPDIR:-/tmp}/gryphfield.XXXXXX")"
+    mkfifo "$fifo" || fail INTERNAL "Could not create a pipe for launch events."
+    if [ "$kind" = gryphlink ]; then
+        start_timeout=180
+        (cd "$GL" && exec "$WINE" "$GL_WIN\\Launcher.exe") >> "$WLOG" 2>&1 &
+        [ ${#EXTRA[@]} -eq 0 ] || say "extra game arguments are ignored for GRYPHLINK; it starts the game itself"
+    else
+        start_timeout=120
+        "$WINE" "$DIRECT" --launcher "$GL_WIN\\$version\\Games.exe" --game-dir "$GAME_WIN" \
+            -- "${GAME_ARGS[@]}" ${EXTRA[@]+"${EXTRA[@]}"} >> "$WLOG" 2>&1 &
+    fi
+    main_pid=$!
+    "$WINE" "$WATCH" "$kind" --start-timeout "$start_timeout" > "$fifo" 2>> "$WLOG" &
+    watch_pid=$!
+    exec 3< "$fifo"
+    rm -f "$fifo"
+
+    while :; do
+        if IFS= read -r -t 2 -u 3 line; then handle_event "$line"; continue; fi
+        if ! kill -0 "$watch_pid" 2>/dev/null; then
+            while IFS= read -r -u 3 line; do handle_event "$line"; done
+            break
+        fi
+        # direct-launch shows its own error dialog and exits if it cannot start the game
+        if [ "$kind" = direct ] && [ "$GAME_STARTED" = 0 ] && ! kill -0 "$main_pid" 2>/dev/null; then
+            wait "$main_pid"
+            main_rc=$?
+            kill "$watch_pid" 2>/dev/null
+            handle_event "{\"event\":\"failed\",\"reason\":\"direct-launch exited with code $main_rc before the game started\"}"
+            break
+        fi
+    done
+    exec 3<&-
+    wait "$watch_pid" 2>/dev/null
+    if [ "$FAILED" = 1 ] && kill -0 "$main_pid" 2>/dev/null; then kill "$main_pid" 2>/dev/null; fi
+    wait_for_exit 20 "$main_pid"
+    say "run-$kind ended: game_started=$GAME_STARTED unity_stable=$UNITY_STABLE exit_code=${EXIT_CODE:-none}"
+
+    [ "$FAILED" = 1 ] && fail LAUNCH_FAILED "${FAIL_REASON:-The launch failed}. See $WLOG."
+    if [ -n "$EXIT_CODE" ] && [ "$EXIT_CODE" != 0 ]; then
+        fail GAME_EXIT_CODE "Endfield exited with code $EXIT_CODE. See $WLOG."
+    fi
+    finish_ok
+}
+
+cmd_stop_game() {
+    wineserver_running || finish_ok
+    use_wine wined3d
+    run_timeout 30 "$WINE" taskkill /f /im Endfield.exe >> "$ENGINE_LOG" 2>&1
+    finish_ok
+}
+
+stop_session() {
+    wineserver_running || return 0
+    use_wine wined3d
+    run_timeout 30 "$WINE" wineboot --end-session --shutdown >> "$ENGINE_LOG" 2>&1
+    run_timeout 20 "$WINESERVER" -w 2>/dev/null || "$WINESERVER" -k 2>/dev/null
+    sleep 1
+    wineserver_running && "$WINESERVER" -k 2>/dev/null
+    return 0
+}
+
+kill_session() {
+    use_wine wined3d
+    "$WINESERVER" -k 2>/dev/null
+    sleep 1
+    /usr/bin/pkill -9 -f -- "$ENGINE/wine.*wineserver" 2>/dev/null
+    return 0
+}
+
+cmd_restart() {   # restart the Wine session (not the game)
+    stop_session
+    prefix_ready || fail NOT_READY "Setup is not complete. Run setup first."
+    use_wine wined3d
+    run_timeout 300 "$WINE" wineboot >> "$ENGINE_LOG" 2>&1 || fail RESTART_FAILED "Starting the Wine session failed. See $ENGINE_LOG."
+    finish_ok
+}
+
+cmd_logs() {
+    emit "{\"event\":\"logs\",\"dir\":$(jstr "$LOGS"),\"engine\":$(jstr "$ENGINE_LOG"),\"latest_wine\":$(jstr "$LOGS/latest-wine.log"),\"setup\":$(jstr "$LOGS/setup.log")}"
+    finish_ok
+}
+
+cmd_uninstall_game() {
+    [ "${1:-}" = --yes ] || fail CONFIRMATION_REQUIRED "uninstall-game needs --yes."
+    game_running && fail GAME_RUNNING "Stop the game before uninstalling it."
+    [ -d "$GAME" ] || finish_ok
+    say "uninstalling the game: $GAME"
+    rm -rf "$GAME" || fail UNINSTALL_FAILED "Could not delete $GAME."
+    finish_ok
+}
+
+cmd_reset_prefix() {
+    local yes=0 keep=0 kept="$SUPPORT/kept-game"
+    for arg in "$@"; do
+        case "$arg" in --yes) yes=1 ;; --keep-game) keep=1 ;; *) fail BAD_ARGUMENT "Unknown argument: $arg" ;; esac
+    done
+    [ "$yes" = 1 ] || fail CONFIRMATION_REQUIRED "reset-prefix needs --yes."
+    kill_session
+    if [ "$keep" = 1 ] && [ -d "$GAME" ]; then
+        rm -rf "$kept"
+        mv "$GAME" "$kept" || fail RESET_FAILED "Could not move the game out of the prefix."
+    fi
+    say "deleting the prefix: $PREFIX"
+    rm -rf "$PREFIX" || fail RESET_FAILED "Could not delete $PREFIX."
+    setup_prefix
+    setup_gryphlink
+    if [ -d "$kept" ]; then
+        mkdir -p "$GL/games"
+        mv "$kept" "$GAME" || fail RESET_FAILED "The game was kept at $kept but could not be moved back."
+    fi
+    finish_ok
+}
+
+say "command: $*"
+command="${1:-status}"
+[ $# -gt 0 ] && shift
+case "$command" in
+    status) cmd_status ;;
+    setup) cmd_setup ;;
+    run-gryphlink) cmd_run gryphlink "$@" ;;
+    run-direct) cmd_run direct "$@" ;;
+    stop-game) cmd_stop_game ;;
+    stop) stop_session; finish_ok ;;
+    kill) kill_session; finish_ok ;;
+    restart) cmd_restart ;;
+    logs) cmd_logs ;;
+    uninstall-game) cmd_uninstall_game "$@" ;;
+    reset-prefix) cmd_reset_prefix "$@" ;;
+    *) fail UNKNOWN_COMMAND "Unknown command: $command" ;;
+esac
