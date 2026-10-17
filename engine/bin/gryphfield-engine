@@ -134,6 +134,15 @@ use_wine() {   # mode
     esac
 }
 
+# Once a prefix exists, Wine only loads built-in DLLs that have a file in system32. wineboot
+# created those from the stock tree, which has no winemetal.dll (DXMT's d3d11/dxgi import it);
+# copy it in, as wineboot does for every built-in. Harmless for the stock tree, which never loads it.
+dxmt_stub() {
+    local src="$ENGINE/wine-dxmt/lib/wine/x86_64-windows/winemetal.dll" dst="$PREFIX/drive_c/windows/system32/winemetal.dll"
+    [ -f "$src" ] || return 0
+    cmp -s "$src" "$dst" 2>/dev/null || cp -f "$src" "$dst"
+}
+
 running_json() {   # {"wineserver":..,"gryphlink":..,"endfield":..,"unity":..}
     local server=false procs="" gryphlink=false endfield=false unity=false
     if wineserver_running; then
@@ -246,6 +255,7 @@ cmd_run() {   # gryphlink|direct [--graphics MODE] [-- game args]
     game_running && fail ALREADY_RUNNING "Endfield is already running."
     version="$(gryphlink_version)"
     use_wine "$(graphics_mode)"
+    [ "$MODE" = dxmt ] && dxmt_stub
 
     EXTRA=()
     extra="$(cfg extra_args '')"

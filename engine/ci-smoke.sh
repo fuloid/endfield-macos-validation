@@ -64,10 +64,11 @@ launch wined3d 1
 # DXMT with +loaddll, so the log shows whether DXMT's winemetal.dll was loaded
 printf '{"debug_logging":true}\n' > "$OUT/home/config.json"
 launch dxmt 0
-if grep -qi 'winemetal' "$OUT/wine-dxmt.log" 2>/dev/null; then
-    note '- INFO DXMT: winemetal.dll was loaded (DXMT d3d11 in use)'
-else
-    note '- INFO DXMT: no winemetal.dll load in the log'
+# +loaddll prints 'Loaded L"...\winemetal.dll" at ...: builtin' when DXMT's bridge loads
+check 'DXMT: winemetal.dll loads in DXMT mode' grep -qE 'Loaded L".*winemetal\.dll"' "$OUT/wine-dxmt.log"
+if grep -q 'winemetal.dll.*not found' "$OUT/wine-dxmt.log" 2>/dev/null; then
+    note '- FAIL DXMT: "winemetal.dll not found" in the log'
+    failures=$((failures + 1))
 fi
 rm -f "$OUT/home/config.json"
 
