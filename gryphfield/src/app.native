@@ -34,11 +34,11 @@
   </row>
 </template>
 
-<template name="app-tile" args="icon initials name caption dim=no">
+<template name="app-tile" args="icon initials name caption dim">
   <column width="236" padding="18" gap="12" radius="xl" background="surface" cross="center">
     <stack width="128" height="128">
       <avatar image="{icon}" width="128" height="128" radius="xl" label="{name}">{initials}</avatar>
-      <if test="{dim == 'yes'}"><panel width="128" height="128" radius="xl" background="scrim" /></if>
+      <if test="{dim}"><panel width="128" height="128" radius="xl" background="scrim" /></if>
     </stack>
     <column gap="2" cross="center">
       <text size="lg" text-alignment="center">{name}</text>
@@ -145,29 +145,29 @@
           </column>
           <row gap="16">
             <if test="{canRunDirect}">
-              <use template="app-tile" on-press="run_direct" icon="{endfieldIcon}" initials="EF" name="Endfield" caption="Direct launch, experimental">
+              <column on-press="run_direct"><use template="app-tile" icon="{endfieldIcon}" initials="EF" name="Endfield" caption="Direct launch, experimental" dim="{not gameReady}">
                 <button variant="secondary" size="sm" icon="play" on-press="run_direct" disabled="{not canRunDirect}">Run Endfield Directly</button>
-              </use>
+              </use></column>
             </if>
             <else>
               <if test="{gameReady}">
-                <use template="app-tile" icon="{endfieldIcon}" initials="EF" name="Endfield" caption="Direct launch, experimental">
+                <use template="app-tile" icon="{endfieldIcon}" initials="EF" name="Endfield" caption="Direct launch, experimental" dim="{not gameReady}">
                   <button variant="secondary" size="sm" icon="play" on-press="run_direct" disabled="{not canRunDirect}">Run Endfield Directly</button>
                 </use>
               </if>
               <else>
-                <use template="app-tile" icon="{endfieldIcon}" initials="EF" name="Endfield" caption="Game files not found" dim="yes">
+                <use template="app-tile" icon="{endfieldIcon}" initials="EF" name="Endfield" caption="Game files not found" dim="{not gameReady}">
                   <button variant="secondary" size="sm" icon="play" on-press="run_direct" disabled="{not canRunDirect}">Run Endfield Directly</button>
                 </use>
               </else>
             </else>
             <if test="{canRunLauncher}">
-              <use template="app-tile" on-press="run_launcher" icon="{gryphlinkIcon}" initials="GL" name="GRYPHLINK" caption="Sign in, update and play">
+              <column on-press="run_launcher"><use template="app-tile" icon="{gryphlinkIcon}" initials="GL" name="GRYPHLINK" caption="Sign in, update and play" dim="{not launcherReady}">
                 <button variant="primary" size="sm" icon="play" on-press="run_launcher" disabled="{not canRunLauncher}">Run GRYPHLINK</button>
-              </use>
+              </use></column>
             </if>
             <else>
-              <use template="app-tile" icon="{gryphlinkIcon}" initials="GL" name="GRYPHLINK" caption="Sign in, update and play">
+              <use template="app-tile" icon="{gryphlinkIcon}" initials="GL" name="GRYPHLINK" caption="Sign in, update and play" dim="{not launcherReady}">
                 <button variant="primary" size="sm" icon="play" on-press="run_launcher" disabled="{not canRunLauncher}">Run GRYPHLINK</button>
               </use>
             </else>
