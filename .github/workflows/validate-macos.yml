@@ -172,6 +172,9 @@ jobs:
       - name: Keep build configuration with the installed Wine
         if: ${{ steps.build.outcome == 'success' }}
         run: cp "$WORK_DIR/wine-build/include/config.h" "$WORK_DIR/wine-install/BUILD-config.h"
+      - name: Check winemac.so exports macdrv_functions for DXMT
+        if: ${{ steps.build.outcome == 'success' }}
+        run: nm -gU "$WORK_DIR/wine-install/lib/wine/x86_64-unix/winemac.so" | grep ' _macdrv_functions$'
       - name: Save Wine build cache
         if: ${{ steps.build.outcome == 'success' }}
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4

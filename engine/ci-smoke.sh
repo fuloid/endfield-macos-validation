@@ -71,6 +71,13 @@ if grep -q 'winemetal.dll.*not found' "$OUT/wine-dxmt.log" 2>/dev/null; then
     note '- FAIL DXMT: "winemetal.dll not found" in the log'
     failures=$((failures + 1))
 fi
+# DXMT finds winemac.so's macdrv_functions table (patch 0013) to put a Metal view in a window
+check 'DXMT: winemac.so exports macdrv_functions' bash -c \
+    "nm -gU '$ENGINE/wine-dxmt/lib/wine/x86_64-unix/winemac.so' | grep -q ' _macdrv_functions\$'"
+if grep -q 'Failed to create metal view' "$OUT/wine-dxmt.log" 2>/dev/null; then
+    note '- FAIL DXMT: "Failed to create metal view" in the log'
+    failures=$((failures + 1))
+fi
 rm -f "$OUT/home/config.json"
 
 /bin/bash "$E" run-direct --graphics dxmt > "$OUT/run-direct.jsonl" 2>&1
