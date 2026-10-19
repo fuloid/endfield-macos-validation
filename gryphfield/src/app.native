@@ -130,6 +130,24 @@
             <use template="check-row" label="Wine prefix" detail="A private Windows environment for Endfield" state="{prefixCheck}" />
             <use template="check-row" label="GRYPHLINK" detail="The official launcher, for sign-in and updates" state="{launcherCheck}" />
           </column>
+          <column gap="10" padding="14" radius="lg" background="surface">
+            <row gap="12" cross="center">
+              <icon name="folder" foreground="text_muted" width="18" height="18" />
+              <column grow="1" gap="2">
+                <text>GRYPHLINK and game location</text>
+                <text foreground="text_muted" wrap="true">{locationLabel}</text>
+              </column>
+              <if test="{locationCustom}"><button size="sm" variant="ghost" on-press="default_location" disabled="{not canChangeLocation}">Use default</button></if>
+              <button size="sm" variant="secondary" icon="folder-open" on-press="choose_location" disabled="{not canChangeLocation}">Change...</button>
+            </row>
+            <text foreground="text_muted" wrap="true">The game needs about 80 GB, and 90 GB while it installs. You can choose a folder on another drive (APFS or Mac OS Extended works best).</text>
+            <if test="{locationMissing}">
+              <row gap="8" cross="center"><icon name="alert" foreground="warning" width="16" height="16" /><text foreground="warning" grow="1" wrap="true">This folder isn't available. Connect its drive and press Refresh, or choose another location.</text></row>
+            </if>
+            <if test="{hasLocationNote}">
+              <row gap="8" cross="center"><icon name="info" foreground="warning" width="16" height="16" /><text foreground="warning" grow="1" wrap="true">{locationNote}</text></row>
+            </if>
+          </column>
           <row gap="10" cross="center" padding="12" radius="md" background="surface_subtle">
             <if test="{action == 'setup'}"><icon name="circle-dot" foreground="info" width="16" height="16" /></if>
             <else><icon name="info" foreground="text_muted" width="16" height="16" /></else>
@@ -304,9 +322,16 @@
                 <row gap="8" cross="center"><text foreground="text_muted" grow="1">Wine prefix</text><button size="sm" variant="ghost" icon="folder-open" on-press="show_prefix">Show in Finder</button></row>
                 <text wrap="true">{prefixPath}</text>
               </column>
-              <column gap="4" padding="12" radius="md" background="surface_subtle">
-                <row gap="8" cross="center"><text foreground="text_muted" grow="1">GRYPHLINK</text><button size="sm" variant="ghost" icon="folder-open" on-press="show_launcher">Show in Finder</button></row>
+              <column gap="8" padding="12" radius="md" background="surface_subtle">
+                <row gap="8" cross="center"><text foreground="text_muted" grow="1">GRYPHLINK and game location</text><button size="sm" variant="ghost" icon="folder-open" on-press="show_launcher">Show in Finder</button></row>
                 <text wrap="true">{launcherPath}</text>
+                <row gap="8" cross="center">
+                  <button size="sm" variant="secondary" icon="folder" on-press="choose_location" disabled="{not canChangeLocation}">Change location...</button>
+                  <if test="{locationCustom}"><button size="sm" variant="ghost" on-press="default_location" disabled="{not canChangeLocation}">Use default</button></if>
+                </row>
+                <text foreground="text_muted" wrap="true">Changing the location doesn't move files. To keep an installed game, quit GRYPHLINK, move its GRYPHLINK folder to the new place in Finder, then choose that folder. Otherwise GRYPHLINK downloads the game again there.</text>
+                <if test="{locationMissing}"><text foreground="warning" wrap="true">This folder isn't available. Connect its drive, or choose another location.</text></if>
+                <if test="{hasLocationNote}"><text foreground="warning" wrap="true">{locationNote}</text></if>
               </column>
               <column gap="4" padding="12" radius="md" background="surface_subtle">
                 <row gap="8" cross="center"><text foreground="text_muted" grow="1">Endfield</text><button size="sm" variant="ghost" icon="folder-open" on-press="show_game">Show in Finder</button></row>
@@ -380,7 +405,8 @@
       <column padding="20" gap="12">
         <row gap="10" cross="center"><icon name="refresh-cw" foreground="destructive" width="20" height="20" /><text size="lg" grow="1">Reset Wine prefix?</text></row>
         <text wrap="true">The engine will recreate the Wine prefix.</text>
-        <switch checked="{keepGameOnReset}" on-toggle="toggle_keep_game">Preserve installed game files</switch>
+        <if test="{locationCustom}"><text foreground="text_muted" wrap="true">GRYPHLINK and the game are in your chosen location, outside the prefix. The reset doesn't touch them.</text></if>
+        <else><switch checked="{keepGameOnReset}" on-toggle="toggle_keep_game">Preserve installed game files</switch></else>
         <row gap="8" main="end"><button on-press="modal_close">Cancel</button><button variant="secondary" on-press="reset_next">Continue</button></row>
       </column>
     </dialog>
@@ -391,8 +417,8 @@
         <row gap="10" cross="center"><icon name="alert" foreground="destructive" width="20" height="20" /><text size="lg" grow="1">Confirm prefix reset</text></row>
         <text wrap="true">Second confirmation: reset this prefix?</text>
         <text foreground="text_muted" wrap="true">{prefixPath}</text>
-        <if test="{keepGameOnReset}"><text wrap="true">The game folder will be preserved.</text></if>
-        <if test="{not keepGameOnReset}"><text foreground="destructive" wrap="true">The installed game will be removed.</text></if>
+        <if test="{keepGameOnReset or locationCustom}"><text wrap="true">The game folder will be preserved.</text></if>
+        <if test="{not keepGameOnReset and not locationCustom}"><text foreground="destructive" wrap="true">The installed game will be removed.</text></if>
         <row gap="8" main="end"><button on-press="modal_close">Cancel</button><button variant="destructive" on-press="reset_confirm">Reset prefix</button></row>
       </column>
     </dialog>

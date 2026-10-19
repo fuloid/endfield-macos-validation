@@ -1,6 +1,6 @@
 import { Cmd, Sub, asciiBytes } from "@native-sdk/core";
 import { applyTextInputEvent, type TextInputEvent, type TextEditState } from "@native-sdk/core/text";
-import { diagnosticsDiagnose, engineParse, settingsLoad, settingsSave } from "@native-sdk/services";
+import { diagnosticsDiagnose, engineParse, settingsLoad, settingsSave, settingsSaveLocation } from "@native-sdk/services";
 import type { DiagnosticResult, EngineEvent, SettingsResult } from "./shared.ts";
 
 export type Phase = "boot" | "checking" | "setup" | "ready" | "running" | "failure";
@@ -64,6 +64,13 @@ export interface Model {
   readonly setupStep: SetupStep;
   readonly stopRequested: boolean;
   readonly sessionStopped: boolean;
+  // Where GRYPHLINK and the game live (config library_dir); empty means inside the prefix.
+  readonly locationPath: Uint8Array;
+  readonly locationCustom: boolean;
+  readonly locationAvailable: boolean;
+  readonly locationBusy: boolean;
+  readonly locationPending: Uint8Array;
+  readonly locationNote: Uint8Array;
 }
 
 export type Msg =
@@ -112,9 +119,17 @@ export type Msg =
   | { readonly kind: "show_launcher" }
   | { readonly kind: "show_game" }
   | { readonly kind: "show_wine" }
-  | { readonly kind: "show_log" };
+  | { readonly kind: "show_log" }
+  | { readonly kind: "choose_location" }
+  | { readonly kind: "default_location" }
+  | { readonly kind: "location_line"; readonly bytes: Uint8Array }
+  | { readonly kind: "location_parsed"; readonly result: EngineEvent }
+  | { readonly kind: "location_exited"; readonly code: number }
+  | { readonly kind: "location_failed"; readonly reason: Uint8Array }
+  | { readonly kind: "location_settle"; readonly at: number }
+  | { readonly kind: "location_saved"; readonly result: SettingsResult };
 
-export const viewUnbound = ["boot", "enable_mock", "line", "exited", "settle", "spawn_failed", "parsed", "parse_failed", "control_line", "control_exited", "control_failed", "control_parsed", "diagnosed", "diagnose_failed", "settings_loaded", "settings_saved", "settings_failed"] as const;
+export const viewUnbound = ["boot", "enable_mock", "line", "exited", "settle", "spawn_failed", "parsed", "parse_failed", "control_line", "control_exited", "control_failed", "control_parsed", "diagnosed", "diagnose_failed", "settings_loaded", "settings_saved", "settings_failed", "location_line", "location_parsed", "location_exited", "location_failed", "location_settle", "location_saved"] as const;
 
 export function initialModel(): Model {
   return {
@@ -134,6 +149,8 @@ export function initialModel(): Model {
     gryphlinkIcon: 1, endfieldIcon: 2,
     lastLaunch: "none", sawLauncher: false, sawGame: false, sawUnity: false, setupStep: "none",
     stopRequested: false, sessionStopped: false,
+    locationPath: asciiBytes(""), locationCustom: false, locationAvailable: true, locationBusy: false,
+    locationPending: asciiBytes(""), locationNote: asciiBytes(""),
   };
 }
 
@@ -145,6 +162,18 @@ export function canRunLauncher(model: Model): boolean {
 }
 export function canRunDirect(model: Model): boolean {
   return canRunLauncher(model) && model.gameReady;
+}
+export function canChangeLocation(model: Model): boolean {
+  return model.action === "none" && !model.controlBusy && !model.locationBusy && !model.wineRunning && model.prefixPath.length > 0;
+}
+export function locationMissing(model: Model): boolean {
+  return model.locationCustom && !model.locationAvailable;
+}
+export function hasLocationNote(model: Model): boolean {
+  return model.locationNote.length > 0;
+}
+export function locationLabel(model: Model): Uint8Array {
+  return model.locationCustom ? model.locationPath : asciiBytes("Inside Gryphfield's Wine prefix (default)");
 }
 export function modeLabel(model: Model): Uint8Array {
   if (model.graphics === "wined3d") return asciiBytes("WineD3D");
@@ -296,7 +325,7 @@ export function update(model: Model, msg: Msg): Model | [Model, Cmd<Msg>] {
       return [model, engineParse({ line: msg.bytes }, { ok: "control_parsed", err: "parse_failed" })];
     case "parsed": {
       const e = msg.result;
-      if (e.event === "status") return [{ ...model, rosetta: e.rosetta, prefixReady: e.prefixReady, launcherReady: e.gryphlinkInstalled, gameReady: e.gameInstalled, wineRunning: e.wineserverRunning, launcherRunning: e.gryphlinkRunning, gameRunning: e.endfieldRunning, engineVersion: e.engineVersion, wineVersion: e.wineVersion, gryphlinkVersion: e.gryphlinkVersion, setupStep: "none", prefixPath: e.prefixPath, launcherPath: e.gryphlinkPath, gamePath: e.gamePath }, settingsLoad({ prefixPath: e.prefixPath }, { ok: "settings_loaded", err: "settings_failed" })];
+      if (e.event === "status") return [{ ...model, rosetta: e.rosetta, prefixReady: e.prefixReady, launcherReady: e.gryphlinkInstalled, gameReady: e.gameInstalled, wineRunning: e.wineserverRunning, launcherRunning: e.gryphlinkRunning, gameRunning: e.endfieldRunning, engineVersion: e.engineVersion, wineVersion: e.wineVersion, gryphlinkVersion: e.gryphlinkVersion, setupStep: "none", prefixPath: e.prefixPath, launcherPath: e.gryphlinkPath, gamePath: e.gamePath, locationPath: e.locationPath, locationCustom: e.locationCustom, locationAvailable: e.locationAvailable }, settingsLoad({ prefixPath: e.prefixPath }, { ok: "settings_loaded", err: "settings_failed" })];
       if (e.event === "step") return applyStep(model, e);
       if (e.event === "launcher_started") return { ...model, wineRunning: true, launcherRunning: true, sawLauncher: true, activity: asciiBytes("GRYPHLINK started") };
       if (e.event === "launcher_minimized") return { ...model, activity: asciiBytes("GRYPHLINK handed off to Endfield") };
@@ -366,7 +395,7 @@ export function update(model: Model, msg: Msg): Model | [Model, Cmd<Msg>] {
       return { ...model, graphics: sameAscii(value.graphics, asciiBytes("vulkan")) ? "vulkan" : sameAscii(value.graphics, asciiBytes("wined3d")) ? "wined3d" : "dxmt", argsEdit: { text, selection: { anchor: end, focus: end }, composition: null }, debugLogging: value.debugLogging, rosettaAvx: value.rosettaAvx, settingsSaved: true };
     }
     case "settings_saved": return { ...model, settingsSaved: true, settingsBusy: false };
-    case "settings_failed": return { ...model, settingsBusy: false, modal: "failure", errorCode: asciiBytes("SETTINGS_ERROR"), errorMessage: msg.reason };
+    case "settings_failed": return { ...model, settingsBusy: false, locationBusy: false, modal: "failure", errorCode: asciiBytes("SETTINGS_ERROR"), errorMessage: msg.reason };
     case "args_edit": {
       const edit = applyTextInputEvent(model.argsEdit, msg.edit, 2048);
       return edit ? { ...model, argsEdit: edit, settingsSaved: false } : model;
@@ -379,6 +408,37 @@ export function update(model: Model, msg: Msg): Model | [Model, Cmd<Msg>] {
     case "show_game": return [model, Cmd.revealPath(model.gamePath)];
     case "show_wine": return [model, Cmd.revealPath(model.winePath)];
     case "show_log": return [model, Cmd.revealPath(model.logPath)];
+    // The engine shows the macOS folder picker and checks the folder; the settings service
+    // saves it to config.json; a status refresh then shows whether setup is needed there.
+    case "choose_location":
+      if (!canChangeLocation(model)) return model;
+      return [{ ...model, locationBusy: true, locationPending: asciiBytes(""), locationNote: asciiBytes("") }, Cmd.spawn([model.runner, model.script, asciiBytes("choose-location")], { key: "location", line: "location_line", exit: "location_exited", err: "location_failed" })];
+    case "default_location":
+      if (!canChangeLocation(model)) return model;
+      return [{ ...model, locationBusy: true, locationPending: asciiBytes(""), locationNote: asciiBytes("") }, settingsSaveLocation({ prefixPath: model.prefixPath, libraryDir: asciiBytes("") }, { ok: "location_saved", err: "settings_failed" })];
+    case "location_line":
+      return [model, engineParse({ line: msg.bytes }, { ok: "location_parsed", err: "parse_failed" })];
+    case "location_parsed": {
+      const e = msg.result;
+      if (e.event === "location") return { ...model, locationPending: e.locationPath, locationNote: e.message };
+      if (e.event === "done" && !e.ok && !sameAscii(e.errorCode, asciiBytes("CANCELLED"))) return { ...model, modal: "failure", errorCode: e.errorCode, errorMessage: e.message };
+      return model;
+    }
+    case "location_exited":
+      // A failed or cancelled picker never saves; its done event already explained why.
+      if (msg.code !== 0) return { ...model, locationBusy: false, locationPending: asciiBytes("") };
+      return [model, Cmd.delay("location_settle", 500, "location_settle")];
+    case "location_settle":
+      if (!model.locationBusy) return model;
+      if (model.locationPending.length === 0) return { ...model, locationBusy: false };
+      return [model, settingsSaveLocation({ prefixPath: model.prefixPath, libraryDir: model.locationPending }, { ok: "location_saved", err: "settings_failed" })];
+    case "location_failed":
+      return { ...model, locationBusy: false, modal: "failure", errorCode: asciiBytes("LOCATION_PICKER"), errorMessage: msg.reason };
+    case "location_saved": {
+      const next = { ...model, locationBusy: false, locationPending: asciiBytes("") };
+      if (model.action !== "none") return next;
+      return [{ ...next, phase: "checking", action: "status", doneOk: false, doneReceived: false, processExited: false }, Cmd.spawn([model.runner, model.script, asciiBytes("status")], { key: "main", line: "line", exit: "exited", err: "spawn_failed" })];
+    }
   }
 }
 

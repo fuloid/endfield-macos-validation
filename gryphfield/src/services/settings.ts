@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import type { SettingsRequest, SettingsResult, SettingsWrite } from "../shared.ts";
+import type { LocationWrite, SettingsRequest, SettingsResult, SettingsWrite } from "../shared.ts";
 
 const decode = (value: Uint8Array) => new TextDecoder().decode(value);
 const encode = (value: string) => new TextEncoder().encode(value);
@@ -27,6 +27,24 @@ function result(config: Record<string, unknown>): SettingsResult {
 export function load(request: SettingsRequest): SettingsResult {
   return result(rawConfig(pathFor(request.prefixPath)));
 }
+function write(path: string, config: Record<string, unknown>): void {
+  mkdirSync(dirname(path), { recursive: true });
+  const temporary = `${path}.gryphfield-ui.tmp`;
+  writeFileSync(temporary, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
+  renameSync(temporary, path);
+}
+// Where GRYPHLINK and the game live: an absolute folder the engine has checked, or "" for the
+// default inside the Wine prefix. The engine reads library_dir from this same config.json.
+export function saveLocation(request: LocationWrite): SettingsResult {
+  const path = pathFor(request.prefixPath);
+  const dir = decode(request.libraryDir);
+  if (dir !== "" && !dir.startsWith("/")) throw { kind: "INVALID_PATH", message: "The location must be an absolute folder path" };
+  const config = rawConfig(path);
+  if (dir === "") delete config.library_dir;
+  else config.library_dir = dir;
+  write(path, config);
+  return result(config);
+}
 export function save(request: SettingsWrite): SettingsResult {
   const path = pathFor(request.prefixPath);
   const graphics = decode(request.graphics);
@@ -36,9 +54,6 @@ export function save(request: SettingsWrite): SettingsResult {
   config.extra_args = decode(request.extraArgs);
   config.debug_logging = request.debugLogging;
   config.rosetta_avx = request.rosettaAvx;
-  mkdirSync(dirname(path), { recursive: true });
-  const temporary = `${path}.gryphfield-ui.tmp`;
-  writeFileSync(temporary, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
-  renameSync(temporary, path);
+  write(path, config);
   return result(config);
 }

@@ -1,6 +1,6 @@
 export type EngineEventName = "status" | "step" | "launcher_started" | "launcher_minimized" |
   "game_started" | "unity_started" | "unity_stable" | "game_exited" |
-  "failed" | "logs" | "done" | "unknown";
+  "failed" | "logs" | "location" | "done" | "unknown";
 
 export type EngineEvent = {
   readonly event: EngineEventName;
@@ -21,6 +21,9 @@ export type EngineEvent = {
   readonly prefixPath: Uint8Array;
   readonly gryphlinkPath: Uint8Array;
   readonly gamePath: Uint8Array;
+  readonly locationPath: Uint8Array;
+  readonly locationCustom: boolean;
+  readonly locationAvailable: boolean;
   readonly logPath: Uint8Array;
   readonly step: Uint8Array;
   readonly state: Uint8Array;
@@ -49,6 +52,10 @@ export type SettingsWrite = {
   readonly extraArgs: Uint8Array;
   readonly debugLogging: boolean;
   readonly rosettaAvx: boolean;
+};
+export type LocationWrite = {
+  readonly prefixPath: Uint8Array;
+  readonly libraryDir: Uint8Array;
 };
 export type SettingsResult = {
   readonly graphics: Uint8Array;

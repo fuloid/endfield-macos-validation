@@ -12,7 +12,8 @@ export function parse(request: ParseRequest): EngineEvent {
   const running = field(raw.running);
   const engine = field(raw.engine);
   const error = field(raw.error);
-  const valid = ["status", "step", "launcher_started", "launcher_minimized", "game_started", "unity_started", "unity_stable", "game_exited", "failed", "logs", "done"].includes(String(raw.event));
+  const location = field(raw.location);
+  const valid = ["status", "step", "launcher_started", "launcher_minimized", "game_started", "unity_started", "unity_stable", "game_exited", "failed", "logs", "location", "done"].includes(String(raw.event));
   const event = valid ? raw.event as EngineEvent["event"] : "unknown";
   return {
     event,
@@ -33,6 +34,9 @@ export function parse(request: ParseRequest): EngineEvent {
     prefixPath: bytes(prefix.path),
     gryphlinkPath: bytes(gryphlink.path),
     gamePath: bytes(game.path),
+    locationPath: bytes(raw.event === "location" ? raw.path : location.path),
+    locationCustom: flag(location.custom),
+    locationAvailable: location.available !== false,
     logPath: bytes(raw.log ?? raw.latest_wine),
     step: bytes(raw.step),
     state: bytes(raw.state),
