@@ -18,6 +18,8 @@ Apply exactly these patches in filename order (`build-mac.sh prepare` does this)
 - FineWine misc `0009` and `0010`: the game-specific dispatcher workaround, missing from upstream Wine.
 - FineWine misc `0011`: relative waits using QPC, also missing from upstream Wine.
 - `0012` (mary-ext `crossover-wine-endfield` `macos/0002`): Darwin's `select()` rejects timeouts over 10^8 seconds, which turned very long sleeps into a busy loop; waits are capped at one day per `select()` and recomputed.
+- `0013` (original): winemac.so exports `macdrv_functions`, which DXMT's winemetal looks up to put a Metal view into a window; without it DXMT logs "Failed to create metal view" and draws nothing.
+- `0014` (mary-ext `crossover-wine-endfield` `macos/0013`): winemac reuses the window under a stationary cursor for 50 ms instead of asking WindowServer on every mouse-moved event, which cost main-thread CPU during mouse-look with high-rate mice.
 - `0101`–`0115`: upstream-11.19 port of FineWine's `ace-core` series (FineWine `cc4cefa`, 2026-10-15). The game's late-2026 `ACE-CORE*.sys` driver replaced `ACE-BASE.sys`; without this series it bug-checks at `DriverEntry` (`KeBugCheckEx 0x65636157`) and the game does not launch. Ported: `0001` (new imports), `0003` (kernel return address for `DriverInit`, the entry bugcheck fix), `0004`, `0005`, `0006` (real `PsGetProcessExitStatus`), `0007` (an `lsass.exe` process; here wineboot starts upstream's `SamSs` service), `0010` (section views stay mapped while a locked MDL uses them), `0012`, `0014`, `0015`. Already in upstream 11.19 and omitted: `0002`, `0008`, `0009`, `0011`, `0013`, `0016`. Not ported: `0017`–`0019`, which FineWine tested and found did not change the outcome. Details: `acecore-verification.json` and `AUDIT.md`.
 
 The complete selection applies with normal context to a fresh snapshot and reproduces the reviewed tree exactly. Wine 11.19 already exports the kernel functions covered by the em-backports series; do not reapply those old patches. Export presence and source review do not prove ACE compatibility.
@@ -59,7 +61,7 @@ bash build-mac.sh bundle
 
 The script creates a new pinned source checkout, applies the selected patches, and installs into `$WORK_DIR/wine-install`. It refuses to overwrite an existing source directory. Logs are in `$WORK_DIR`. Start with six build jobs on the Air; lower this if memory pressure becomes a problem. Previous 2â€“4 hour estimates were not measurements of this full standalone build.
 
-Stop on a failed configure/build and retain the logs. Do not disable GnuTLS, FreeType, Vulkan, or CoreAudio to make a game build appear successful. GStreamer is intentionally disabled in this first recipe; video/cutscene support may require additional dependencies and a later reconfigure in a new build directory. Full Xcode with Metal tools is required for the optional MoltenVK/DXMT source builds.
+Stop on a failed configure/build and retain the logs. Do not disable GnuTLS, FreeType, Vulkan, or CoreAudio to make a game build appear successful. GStreamer is intentionally disabled in this first recipe; video/cutscene support may require additional dependencies and a later reconfigure in a new build directory. Full Xcode with Metal tools is required for the optional MoltenVK/DXMT source builds. `configure` sets `ac_cv_func_pipe2=no` (mary-ext `aa312528`): with the macOS 27 SDK, ntdll would otherwise link `pipe2` weakly and call it unchecked, crashing at startup on macOS 26 and earlier.
 
 ## Test Wine and Rosetta before installing graphics
 

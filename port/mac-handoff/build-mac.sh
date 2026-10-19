@@ -95,8 +95,12 @@ C
     ft_leaf="$(basename "$(otool -D "$freetype_prefix/lib/libfreetype.dylib" | tail -1)")"
     tls_leaf="$(basename "$(otool -D "$gnutls_prefix/lib/libgnutls.dylib" | tail -1)")"
     vk_leaf="$(basename "$(otool -D "$mvk_prefix/lib/libMoltenVK.dylib" | tail -1)")"
+    # The macOS 27 SDK has pipe2 (available from 27.0), which configure finds; ntdll then links it
+    # weakly and calls it unchecked, crashing at startup on macOS 26 and earlier
+    # (mary-ext/crossover-wine-endfield aa312528). Use pipe() and fcntl() instead.
     (cd "$BUILD" && CC="${CC:-/usr/bin/clang -arch x86_64}" CXX="${CXX:-/usr/bin/clang++ -arch x86_64}" \
         OBJC="${OBJC:-/usr/bin/clang -arch x86_64}" \
+        ac_cv_func_pipe2=no \
         ac_cv_lib_soname_freetype="$ft_leaf" \
         ac_cv_lib_soname_gnutls="$tls_leaf" \
         ac_cv_lib_soname_vulkan="$vk_leaf" "$SOURCE/configure" \

@@ -1,0 +1,45 @@
+From: Mary (mary-ext/crossover-wine-endfield)
+Subject: [PATCH] winemac.drv: Cache the window under the cursor.
+
+For every mouse-moved event, winemac asks WindowServer which window is under
+the cursor with windowNumberAtPoint:, a synchronous query. When a game holds
+the cursor still for mouse-look, every event asks about the same point; with a
+1000 Hz mouse this was a noticeable part of the main thread's CPU. Reuse the
+answer for 50 ms while the point is unchanged.
+
+Source: https://github.com/mary-ext/crossover-wine-endfield
+        patches/wine/macos/0013-winemac-cache-the-window-under-the-cursor.patch
+        at commit 3ac05a11 (2026-10-17), rebased onto Wine 11.19 (code unchanged).
+License: Wine LGPL-2.1-or-later.
+---
+diff --git a/dlls/winemac.drv/cocoa_app.m b/dlls/winemac.drv/cocoa_app.m
+index 03d98a8..3961732 100644
+--- a/dlls/winemac.drv/cocoa_app.m
++++ b/dlls/winemac.drv/cocoa_app.m
+@@ -1345,9 +1345,23 @@ - (void) handleMouseMove:(NSEvent*)anEvent
+             CGPoint cgpoint = CGEventGetLocation([anEvent CGEvent]);
+             NSPoint point = [self flippedMouseLocation:NSPointFromCGPoint(cgpoint)];
+             NSInteger windowUnderNumber;
+-
+-            windowUnderNumber = [NSWindow windowNumberAtPoint:point
+-                                  belowWindowWithWindowNumber:0];
++            /* Avoid repeated synchronous WindowServer queries while the cursor is pinned.
++               Cache accessed only on the main thread. */
++            static NSPoint cachedPoint;
++            static NSInteger cachedWindowNumber;
++            static NSTimeInterval cachedTime;
++            NSTimeInterval now = [anEvent timestamp];
++
++            if (NSEqualPoints(point, cachedPoint) && now - cachedTime < 0.05 && now >= cachedTime)
++                windowUnderNumber = cachedWindowNumber;
++            else
++            {
++                windowUnderNumber = [NSWindow windowNumberAtPoint:point
++                                      belowWindowWithWindowNumber:0];
++                cachedPoint = point;
++                cachedWindowNumber = windowUnderNumber;
++                cachedTime = now;
++            }
+             targetWindow = (WineWindow*)[NSApp windowWithWindowNumber:windowUnderNumber];
+             if (!NSMouseInRect(point, [targetWindow contentRectForFrameRect:[targetWindow frame]], NO))
+                 targetWindow = nil;

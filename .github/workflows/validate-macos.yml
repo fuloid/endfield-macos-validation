@@ -175,6 +175,13 @@ jobs:
       - name: Check winemac.so exports macdrv_functions for DXMT
         if: ${{ steps.build.outcome == 'success' }}
         run: nm -gU "$WORK_DIR/wine-install/lib/wine/x86_64-unix/winemac.so" | grep ' _macdrv_functions$'
+      - name: Check ntdll.so does not import pipe2 (missing before macOS 27)
+        if: ${{ steps.build.outcome == 'success' }}
+        run: |
+          if grep '^#define HAVE_PIPE2 ' "$WORK_DIR/wine-build/include/config.h" ||
+             nm -u "$WORK_DIR/wine-install/lib/wine/x86_64-unix/ntdll.so" | grep -E '(^| )_pipe2$'; then
+              echo '::error::ntdll.so uses pipe2'; exit 1
+          fi
       - name: Save Wine build cache
         if: ${{ steps.build.outcome == 'success' }}
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
