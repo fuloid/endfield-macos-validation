@@ -7,8 +7,11 @@
 #
 # Commands: status | setup | run-gryphlink [--graphics MODE] | run-direct [--graphics MODE] [-- ARGS]
 #           stop-game | stop | kill | restart | logs | uninstall-game --yes
-#           reset-prefix --yes [--keep-game]
+#           reset-prefix --yes [--keep-game] | choose-location | check-location PATH
 # Graphics modes: dxmt (default) | wined3d | vulkan
+#
+# GRYPHLINK and the game live in the prefix (C:\GRYPHLINK) unless config.json sets
+# "library_dir" to a folder: then they live in <library_dir>/GRYPHLINK, which Wine sees as L:.
 #
 # Written for macOS /bin/bash 3.2: no associative arrays, no mapfile, no `timeout` binary.
 
@@ -17,10 +20,6 @@ SUPPORT="${GRYPHFIELD_HOME:-$HOME/Library/Application Support/Gryphfield}"
 LOGS="${GRYPHFIELD_LOGS:-$HOME/Library/Logs/Gryphfield}"
 PREFIX="$SUPPORT/prefix"
 CONFIG="$SUPPORT/config.json"
-GL="$PREFIX/drive_c/GRYPHLINK"
-GAME="$GL/games/Arknights Endfield"
-GL_WIN='C:\GRYPHLINK'
-GAME_WIN='C:\GRYPHLINK\games\Arknights Endfield'
 WATCH="$ENGINE/tools/gryphfield-watch.exe"
 DIRECT="$ENGINE/tools/direct-launch.exe"
 PREFIX_MARK="$PREFIX/.gryphfield-prefix"
@@ -97,6 +96,38 @@ gryphlink_version() {   # newest <version>/Games.exe, compared numerically
 engine_version_json() {
     if [ -f "$ENGINE/VERSION.json" ]; then tr -d '\n' < "$ENGINE/VERSION.json"; else printf '{}'; fi
 }
+# Where GRYPHLINK lives: the prefix by default, or a folder the user chose (any drive), mapped
+# to its own Wine drive so GRYPHLINK sees that drive's free space.
+resolve_library() {
+    LIBRARY="$(cfg library_dir '')"
+    case "$LIBRARY" in /?*) LIBRARY="${LIBRARY%/}" ;; *) LIBRARY="" ;; esac
+    if [ -n "$LIBRARY" ]; then
+        GL="$LIBRARY/GRYPHLINK"
+        GL_WIN='L:\GRYPHLINK'
+    else
+        GL="$PREFIX/drive_c/GRYPHLINK"
+        GL_WIN='C:\GRYPHLINK'
+    fi
+    GAME="$GL/games/Arknights Endfield"
+    GAME_WIN="$GL_WIN\\games\\Arknights Endfield"
+}
+library_available() { [ -z "$LIBRARY" ] || [ -d "$LIBRARY" ]; }
+require_library() {
+    library_available || fail LOCATION_MISSING "The GRYPHLINK location $LIBRARY is not available. Connect its drive, or choose another location in Settings."
+}
+link_library() {   # map L: to the chosen folder; remove the mapping when the default is used
+    local link="$PREFIX/dosdevices/l:"
+    [ -d "$PREFIX/dosdevices" ] || return 0
+    if [ -n "$LIBRARY" ]; then
+        if [ "$(/usr/bin/readlink "$link" 2>/dev/null)" != "$LIBRARY" ]; then
+            rm -f "$link"
+            ln -s "$LIBRARY" "$link"
+        fi
+    elif [ -L "$link" ]; then
+        rm -f "$link"
+    fi
+}
+
 wineserver_running() { /usr/bin/pgrep -f -- "$ENGINE/wine.*wineserver" >/dev/null 2>&1; }
 
 graphics_mode() {   # --graphics flag, else config, else dxmt
@@ -164,6 +195,7 @@ cmd_status() {
 \"prefix\":{\"path\":$(jstr "$PREFIX"),\"ready\":$(jbool prefix_ready)},\
 \"gryphlink\":{\"path\":$(jstr "$GL"),\"installed\":$(jbool gryphlink_installed),\"version\":$(jstr "$(gryphlink_version)")},\
 \"game\":{\"path\":$(jstr "$GAME"),\"installed\":$(jbool game_installed)},\
+\"location\":{\"path\":$(jstr "$LIBRARY"),\"custom\":$(jbool [ -n "$LIBRARY" ]),\"available\":$(jbool library_available)},\
 \"running\":$(running_json),\"graphics\":$(jstr "$(graphics_mode)")}"
     finish_ok
 }
@@ -185,16 +217,24 @@ setup_prefix() {
 setup_gryphlink() {
     local source="$ENGINE/gryphlink/GRYPHLINK"
     [ -d "$source" ] || fail GRYPHLINK_MISSING "The bundled GRYPHLINK launcher is missing from the app."
+    if ! library_available; then
+        step gryphlink error "$LIBRARY is not available"
+        require_library
+    fi
+    link_library
     if gryphlink_installed; then step gryphlink skipped "GRYPHLINK is installed"; return 0; fi
-    step gryphlink start "Copying GRYPHLINK into the prefix"
-    mkdir -p "$GL"
+    if [ -n "$LIBRARY" ]; then step gryphlink start "Copying GRYPHLINK to $GL"; else step gryphlink start "Copying GRYPHLINK into the prefix"; fi
+    if ! mkdir -p "$GL" 2>> "$LOGS/setup.log"; then
+        step gryphlink error "Could not create $GL"
+        fail GRYPHLINK_FAILED "Could not create $GL. Choose another location."
+    fi
     # Copy only what is missing: never overwrite files GRYPHLINK has updated itself.
     if ! /usr/bin/rsync -a --ignore-existing "$source/" "$GL/" >> "$LOGS/setup.log" 2>&1; then
         /bin/cp -Rn "$source/" "$GL/" >> "$LOGS/setup.log" 2>&1
     fi
     if ! gryphlink_installed; then
         step gryphlink error "Copying GRYPHLINK failed"
-        fail GRYPHLINK_FAILED "Copying GRYPHLINK into the prefix failed. See $LOGS/setup.log."
+        fail GRYPHLINK_FAILED "Copying GRYPHLINK to $GL failed. See $LOGS/setup.log."
     fi
     step gryphlink done "GRYPHLINK $(gryphlink_version) is installed"
 }
@@ -250,7 +290,9 @@ cmd_run() {   # gryphlink|direct [--graphics MODE] [-- game args]
             *) fail BAD_ARGUMENT "Unknown argument: $1" ;;
         esac
     done
+    require_library
     prefix_ready && gryphlink_installed || fail NOT_READY "Setup is not complete. Run setup first."
+    link_library
     [ "$kind" = gryphlink ] || game_installed || fail GAME_MISSING "Endfield is not installed. Install it with GRYPHLINK first."
     game_running && fail ALREADY_RUNNING "Endfield is already running."
     version="$(gryphlink_version)"
@@ -375,12 +417,13 @@ cmd_reset_prefix() {
     done
     [ "$yes" = 1 ] || fail CONFIRMATION_REQUIRED "reset-prefix needs --yes."
     kill_session
-    if [ "$keep" = 1 ] && [ -d "$GAME" ]; then
+    # A game in a chosen location is outside the prefix; a reset never touches it.
+    if [ -z "$LIBRARY" ] && [ "$keep" = 1 ] && [ -d "$GAME" ]; then
         rm -rf "$kept"
         mv "$GAME" "$kept" || fail RESET_FAILED "Could not move the game out of the prefix."
     fi
     say "deleting the prefix: $PREFIX"
-    rm -rf "$PREFIX" || fail RESET_FAILED "Could not delete $PREFIX."
+    rm -rf "$PREFIX" || fail RESET_FAILED "Could not delete $PREFIX."   # rm does not follow the L: link
     setup_prefix
     setup_gryphlink
     if [ -d "$kept" ]; then
@@ -390,6 +433,72 @@ cmd_reset_prefix() {
     finish_ok
 }
 
+# Check a folder for GRYPHLINK and the game. Sets NOTE to a warning worth showing, or fails.
+check_location() {   # dir
+    local dir="$1" dev fs avail_kb free_gb probe
+    NOTE=""
+    [ -d "$dir" ] || fail LOCATION_INVALID "$dir is not a folder."
+    [ "$dir" != / ] || fail LOCATION_INVALID "Choose a folder, not the whole startup disk."
+    case "$dir/" in
+        "$SUPPORT"/*|"$PREFIX"/*) fail LOCATION_INVALID "That folder is inside Gryphfield's own data. Choose Use default instead." ;;
+        "$ENGINE"/*|/Applications/*) fail LOCATION_INVALID "Choose a folder outside the Applications folder." ;;
+        /System/*|/usr/*|/bin/*|/sbin/*|/private/*|/Library/*) fail LOCATION_INVALID "Choose a folder in your home folder or on another drive." ;;
+    esac
+    probe="$dir/.gryphfield-write-test.$$"
+    if ! ( : > "$probe" ) 2>/dev/null; then
+        fail LOCATION_INVALID "Gryphfield can't write to $dir. Choose a folder you own, and check the drive isn't read-only."
+    fi
+    rm -f "$probe"
+    dev="$(/bin/df -Pk "$dir" 2>/dev/null | /usr/bin/awk 'NR == 2 { print $1 }')"
+    avail_kb="$(/bin/df -Pk "$dir" 2>/dev/null | /usr/bin/awk 'NR == 2 { print $4 }')"
+    fs="$(/sbin/mount | /usr/bin/awk -v dev="$dev" '$1 == dev { sub(/^.*\(/, ""); sub(/[,)].*$/, ""); print; exit }')"
+    say "location $dir: device $dev, filesystem ${fs:-unknown}, ${avail_kb:-?} KB free"
+    case "$fs" in
+        apfs|hfs) ;;
+        exfat) NOTE="This drive uses exFAT. It works, but APFS or Mac OS Extended is faster and more reliable for Wine." ;;
+        msdos) fail LOCATION_INVALID "This drive uses FAT32, which can't hold files over 4 GB. Use an APFS, Mac OS Extended or exFAT drive." ;;
+        ntfs) fail LOCATION_INVALID "macOS can only read NTFS drives. Use an APFS, Mac OS Extended or exFAT drive." ;;
+        smbfs|nfs|afpfs|webdav) fail LOCATION_INVALID "Network folders are too slow for the game. Choose a folder on this Mac or on a connected drive." ;;
+        *) NOTE="Gryphfield doesn't recognise this drive's format (${fs:-unknown}). APFS or Mac OS Extended is recommended." ;;
+    esac
+    case "$avail_kb" in
+        ''|*[!0-9]*) ;;
+        *)
+            free_gb=$((avail_kb / 1048576))
+            if [ "$free_gb" -lt 90 ]; then
+                NOTE="${NOTE:+$NOTE }Only $free_gb GB is free there. The game needs about 80 GB, and 90 GB while it installs."
+            fi ;;
+    esac
+}
+
+location_event() {   # dir
+    emit "{\"event\":\"location\",\"path\":$(jstr "$1"),\"message\":$(jstr "$NOTE")}"
+}
+
+cmd_choose_location() {   # native folder picker; reports the checked folder, which the UI saves
+    local picked dir
+    picked="$(/usr/bin/osascript -e 'activate' \
+        -e 'POSIX path of (choose folder with prompt "Choose where GRYPHLINK and Endfield will be installed (about 90 GB free). Gryphfield creates a GRYPHLINK folder inside it.")' \
+        2>> "$ENGINE_LOG")" || fail CANCELLED "No folder was chosen."
+    dir="${picked%/}"
+    [ -n "$dir" ] || dir=/
+    # Choosing an existing GRYPHLINK folder (for example one moved there in Finder) uses it in place.
+    if [ "${dir##*/}" = GRYPHLINK ] && [ -f "$dir/Launcher.exe" ]; then dir="${dir%/*}"; fi
+    check_location "$dir"
+    location_event "$dir"
+    finish_ok
+}
+
+cmd_check_location() {   # path: the same checks without the picker
+    local dir="${1:-}"
+    [ -n "$dir" ] || fail BAD_ARGUMENT "check-location needs a folder."
+    [ "$dir" = / ] || dir="${dir%/}"
+    check_location "$dir"
+    location_event "$dir"
+    finish_ok
+}
+
+resolve_library
 say "command: $*"
 command="${1:-status}"
 [ $# -gt 0 ] && shift
@@ -405,5 +514,7 @@ case "$command" in
     logs) cmd_logs ;;
     uninstall-game) cmd_uninstall_game "$@" ;;
     reset-prefix) cmd_reset_prefix "$@" ;;
+    choose-location) cmd_choose_location ;;
+    check-location) cmd_check_location "$@" ;;
     *) fail UNKNOWN_COMMAND "Unknown command: $command" ;;
 esac

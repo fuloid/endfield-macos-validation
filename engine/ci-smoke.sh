@@ -34,9 +34,10 @@ check 'lsass.exe runs in the prefix' bash -c "grep -rqi lsass '$OUT/logs/setup.l
     (export WINEPREFIX='$OUT/home/prefix' DYLD_FALLBACK_LIBRARY_PATH='$ENGINE/wine/lib/external:/usr/lib'; \
      '$ENGINE/wine/bin/wine' tasklist 2>/dev/null | grep -qi lsass)"
 
-launch() {   # mode required(1/0)
-    local mode=$1 required=$2 events="$OUT/run-$1.jsonl" pid waited=0 started=0
-    /bin/bash "$E" run-gryphlink --graphics "$mode" > "$events" 2> "$OUT/run-$mode.err" &
+launch() {   # mode required(1/0) [label]
+    local mode=$1 required=$2 label="${3:-$1}" pid waited=0 started=0
+    local events="$OUT/run-$label.jsonl"
+    /bin/bash "$E" run-gryphlink --graphics "$mode" > "$events" 2> "$OUT/run-$label.err" &
     pid=$!
     while [ $waited -lt 300 ] && kill -0 $pid 2>/dev/null; do
         grep -q '"launcher_started"' "$events" && { started=1; break; }
@@ -44,20 +45,20 @@ launch() {   # mode required(1/0)
     done
     if [ $started = 1 ]; then
         sleep 30   # let the window draw
-        screencapture -x "$OUT/screen-$mode.png" 2>/dev/null
+        screencapture -x "$OUT/screen-$label.png" 2>/dev/null
         grep -q '"launcher_minimized"\|"failed"' "$events" || true
     fi
-    /bin/bash "$E" kill > "$OUT/kill-$mode.jsonl" 2>&1
+    /bin/bash "$E" kill > "$OUT/kill-$label.jsonl" 2>&1
     for _ in $(seq 1 30); do kill -0 $pid 2>/dev/null || break; sleep 1; done
     kill $pid 2>/dev/null
     cat "$events"
-    cp "$OUT/logs/latest-wine.log" "$OUT/wine-$mode.log" 2>/dev/null
+    cp "$OUT/logs/latest-wine.log" "$OUT/wine-$label.log" 2>/dev/null
     if [ $required = 1 ]; then
-        check "run-gryphlink ($mode): GRYPHLINK started" [ $started = 1 ]
+        check "run-gryphlink ($label): GRYPHLINK started" [ $started = 1 ]
     elif [ $started = 1 ]; then
-        note "- INFO run-gryphlink ($mode): GRYPHLINK started"
+        note "- INFO run-gryphlink ($label): GRYPHLINK started"
     else
-        note "- INFO run-gryphlink ($mode): GRYPHLINK did not start (informational on the CI VM)"
+        note "- INFO run-gryphlink ($label): GRYPHLINK did not start (informational on the CI VM)"
     fi
 }
 launch wined3d 1
@@ -76,6 +77,33 @@ rm -f "$OUT/home/config.json"
 check 'run-direct without a game fails with GAME_MISSING' grep -q '"code":"GAME_MISSING"' "$OUT/run-direct.jsonl"
 /bin/bash "$E" logs > "$OUT/logs.jsonl" 2>&1
 check 'logs reports paths' done_ok "$OUT/logs.jsonl"
+
+# A chosen GRYPHLINK location (config library_dir), which Wine sees as L:
+LIB="$OUT/library"
+mkdir -p "$LIB"
+/bin/bash "$E" check-location "$LIB" > "$OUT/location-ok.jsonl" 2>&1
+cat "$OUT/location-ok.jsonl"
+check 'check-location accepts a writable folder' done_ok "$OUT/location-ok.jsonl"
+/bin/bash "$E" check-location "$OUT/home/prefix/drive_c" > "$OUT/location-bad.jsonl" 2>&1
+check 'check-location rejects a folder inside the prefix' grep -q '"code":"LOCATION_INVALID"' "$OUT/location-bad.jsonl"
+printf '{"library_dir":"%s"}
+' "$LIB" > "$OUT/home/config.json"
+/bin/bash "$E" setup > "$OUT/setup-location.jsonl" 2>> "$OUT/setup.err"
+cat "$OUT/setup-location.jsonl"
+check 'setup copies GRYPHLINK to the chosen location' test -f "$LIB/GRYPHLINK/Launcher.exe"
+check 'the chosen location is mapped to L:' test "$(readlink "$OUT/home/prefix/dosdevices/l:")" = "$LIB"
+/bin/bash "$E" status > "$OUT/status-location.jsonl" 2>> "$OUT/status-1.err"
+check 'status reports the chosen location' grep -q '"custom":true,"available":true' "$OUT/status-location.jsonl"
+check 'status sees GRYPHLINK in the chosen location' grep -q "\"gryphlink\":{\"path\":\"$LIB/GRYPHLINK\",\"installed\":true" "$OUT/status-location.jsonl"
+launch wined3d 1 location
+printf '{"library_dir":"%s"}
+' "$OUT/unplugged-drive" > "$OUT/home/config.json"
+/bin/bash "$E" run-gryphlink --graphics wined3d > "$OUT/run-missing-location.jsonl" 2>&1
+check 'a missing location fails with LOCATION_MISSING' grep -q '"code":"LOCATION_MISSING"' "$OUT/run-missing-location.jsonl"
+rm -f "$OUT/home/config.json"
+/bin/bash "$E" status > "$OUT/status-default.jsonl" 2>> "$OUT/status-1.err"
+check 'back on the default location, GRYPHLINK is in the prefix' grep -q '"custom":false' "$OUT/status-default.jsonl"
+check 'the L: mapping is removed on the default location' bash -c "/bin/bash '$E' setup >/dev/null 2>&1; [ ! -e '$OUT/home/prefix/dosdevices/l:' ]"
 
 note "Failures: $failures"
 exit $((failures > 0))
