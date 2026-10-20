@@ -12,6 +12,10 @@ name: Validate experimental CrossOver engine
         description: 'Ignore the experimental Wine install cache'
         type: boolean
         default: false
+      wine_cache_key:
+        description: 'Optional exact experimental Wine cache key for packaging-only debugging (source lock must match)'
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -76,7 +80,18 @@ jobs:
         if: ${{ !inputs.rebuild }}
         with:
           path: ${{ env.WORK_DIR }}/wine-install
-          key: crossover-install-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('port/crossover-experimental/**', 'port/mac-handoff/build-mac.sh', 'scripts/ci-macos-deps.sh') }}
+          key: ${{ inputs.wine_cache_key || format('crossover-install-v1-{0}-{1}-{2}', runner.os, runner.arch, hashFiles('port/crossover-experimental/**', '!port/crossover-experimental/REPORT.md', 'port/mac-handoff/build-mac.sh', 'scripts/ci-macos-deps.sh')) }}
+      - name: Require an explicitly requested cache
+        if: inputs.wine_cache_key != ''
+        run: test '${{ steps.wine.outputs.cache-hit }}' = true
+      - name: Verify cached runtime source provenance
+        if: steps.wine.outputs.cache-hit == 'true'
+        run: |
+          cmp port/crossover-experimental/sources.lock.json "$WORK_DIR/wine-install/sources.lock.json"
+          python3 port/crossover-experimental/prepare.py --work "$WORK_DIR" --verify-only
+          for lib in VULKAN GNUTLS FREETYPE; do
+            grep -q "^#define SONAME_LIB$lib " "$WORK_DIR/wine-install/BUILD-config.h"
+          done
       - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         if: steps.wine.outputs.cache-hit != 'true'
         with:
@@ -103,7 +118,7 @@ jobs:
         if: success() && steps.wine.outputs.cache-hit != 'true'
         with:
           path: ${{ env.WORK_DIR }}/wine-install
-          key: crossover-install-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('port/crossover-experimental/**', 'port/mac-handoff/build-mac.sh', 'scripts/ci-macos-deps.sh') }}
+          key: crossover-install-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('port/crossover-experimental/**', '!port/crossover-experimental/REPORT.md', 'port/mac-handoff/build-mac.sh', 'scripts/ci-macos-deps.sh') }}
       - name: CPU, direct syscall and dylib smoke (Intel Homebrew hidden)
         id: smoke
         continue-on-error: true
@@ -178,7 +193,11 @@ jobs:
             ${{ env.WORK_DIR }}/diagnostics
             ${{ env.WORK_DIR }}/*.log
             ${{ env.WORK_DIR }}/smoke
-            ${{ env.WORK_DIR }}/engine-smoke
+            ${{ env.WORK_DIR }}/engine-smoke/*.jsonl
+            ${{ env.WORK_DIR }}/engine-smoke/*.err
+            ${{ env.WORK_DIR }}/engine-smoke/*.log
+            ${{ env.WORK_DIR }}/engine-smoke/*.png
+            ${{ env.WORK_DIR }}/engine-smoke/logs
           retention-days: 7
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
