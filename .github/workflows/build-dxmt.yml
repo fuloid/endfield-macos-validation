@@ -61,6 +61,14 @@ jobs:
           git submodule update --init --recursive -q
           echo "DXMT_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
           git rev-parse HEAD
+      - name: Apply build fixes (compile only, no behaviour change)
+        run: |
+          cd "$RUNNER_TEMP/dxmt"
+          for p in "$GITHUB_WORKSPACE"/tools/dxmt/build/*.patch; do
+            git apply --check "$p"
+            git apply "$p"
+            echo "applied build fix $(basename "$p")"
+          done
       - name: Apply the Gryphfield patch
         if: inputs.apply_patch
         run: |
@@ -118,7 +126,7 @@ jobs:
           meson setup --cross-file build-win64.txt -Denable_nvapi=true -Denable_nvngx=true \
             -Dnative_llvm_path=toolchains/llvm-darwin -Dwine_install_path=toolchains/wine \
             build --buildtype release --prefix "$PWD/install" --strip
-          meson compile -C build
+          meson compile -C build --ninja-args=-k0   # report every compile error, not only the first
           meson install -C build
           find install -type f | sort | tee "$RUNNER_TEMP/out/files.txt"
       - name: Freeze as .tar.xz
