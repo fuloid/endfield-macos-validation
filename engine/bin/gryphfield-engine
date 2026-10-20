@@ -148,7 +148,11 @@ use_wine() {   # mode
     export WINEPREFIX="$PREFIX" WINEARCH=win64 WINEFSYNC=0 WINEESYNC=0 WINENTSYNC=0
     # Runtime libraries are bundled; the patched MoltenVK comes first. Wine is started directly,
     # never through /usr/bin/arch, which is SIP-protected and would drop DYLD_* variables.
-    export DYLD_FALLBACK_LIBRARY_PATH="$ENGINE/moltenvk:$ENGINE/wine/lib/external:/usr/lib"
+    local mvk="$ENGINE/moltenvk"
+    if [ "$(cfg moltenvk_stock false)" = true ] && [ -f "$ENGINE/moltenvk-stock/libMoltenVK.dylib" ]; then
+        mvk="$ENGINE/moltenvk-stock"
+    fi
+    export DYLD_FALLBACK_LIBRARY_PATH="$mvk:$ENGINE/wine/lib/external:/usr/lib"
     export WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d'
     if [ "$(cfg rosetta_avx true)" != false ]; then export ROSETTA_ADVERTISE_AVX=1; else unset ROSETTA_ADVERTISE_AVX; fi
     if [ "$(cfg debug_logging false)" = true ]; then
@@ -163,6 +167,23 @@ use_wine() {   # mode
         wined3d) GAME_ARGS=(-force-d3d11); export WINE_D3D_CONFIG='renderer=vulkan' ;;
         vulkan) GAME_ARGS=(-force-vulkan); export WINE_D3D_CONFIG='renderer=vulkan' ;;
     esac
+    # Graphics diagnostics (Settings > Graphics diagnostics); the defaults change nothing.
+    DIAG=""
+    [ "$mvk" = "$ENGINE/moltenvk" ] || DIAG="$DIAG stock-moltenvk"
+    if [ "$(cfg mvk_argument_buffers true)" = false ]; then
+        export MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS=0; DIAG="$DIAG no-argument-buffers"
+    else
+        unset MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS
+    fi
+    if [ "$(cfg wined3d_csmt true)" = false ] && [ -n "${WINE_D3D_CONFIG:-}" ]; then
+        WINE_D3D_CONFIG="$WINE_D3D_CONFIG,csmt=0x0"; DIAG="$DIAG no-csmt"
+    fi
+    if [ "$(cfg metal_validation false)" = true ]; then
+        # Findings go to stderr (the Wine log) instead of stopping the process.
+        export MTL_DEBUG_LAYER=1 MTL_DEBUG_LAYER_ERROR_MODE=nslog MTL_DEBUG_LAYER_WARNING_MODE=nslog                MVK_CONFIG_LOG_LEVEL=4; DIAG="$DIAG metal-validation"
+    else
+        unset MTL_DEBUG_LAYER MTL_DEBUG_LAYER_ERROR_MODE MTL_DEBUG_LAYER_WARNING_MODE MVK_CONFIG_LOG_LEVEL
+    fi
 }
 
 # Once a prefix exists, Wine only loads built-in DLLs that have a file in system32. wineboot
@@ -311,7 +332,7 @@ cmd_run() {   # gryphlink|direct [--graphics MODE] [-- game args]
     {
         echo "# Gryphfield $kind launch, $(date)"
         echo "# engine: $(engine_version_json)"
-        echo "# graphics: $MODE (tree $TREE), WINEDEBUG=$WINEDEBUG, ROSETTA_ADVERTISE_AVX=${ROSETTA_ADVERTISE_AVX:-0}"
+        echo "# graphics: $MODE (tree $TREE), WINEDEBUG=$WINEDEBUG, ROSETTA_ADVERTISE_AVX=${ROSETTA_ADVERTISE_AVX:-0}, WINE_D3D_CONFIG=${WINE_D3D_CONFIG:-}, diagnostics:${DIAG:- none}"
         echo "# GRYPHLINK $version; game args: ${GAME_ARGS[*]} ${EXTRA[*]}"
     } > "$WLOG"
     printf '%s %s\n' "$kind" "$MODE" > "$SUPPORT/last-run"

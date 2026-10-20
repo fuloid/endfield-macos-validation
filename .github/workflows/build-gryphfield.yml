@@ -26,6 +26,8 @@ env:
   DXMT_VERSION: v0.80
   DXMT_SHA256: 8f260e36b5739e68f3bad613381441385c4dc7b85b78ba8de653d5a6a264529d
   GRYPHLINK_URL: https://s.purin.my/akef/gryphlink-launcher.tar.xz
+  STOCK_MVK_URL: https://github.com/KhronosGroup/MoltenVK/releases/download/v1.4.2/MoltenVK-macos.tar
+  STOCK_MVK_SHA256: f95765a6229cb7b915990a2890ce12ebe36a730b021545d3d52ae69ce4c4024e
   GRYPHLINK_SHA256: 8d400eab612bc479271ca74f2e736d614bdb3cf1d4bee90536ca92ec5afb6c20
   NATIVE_SDK_TAG: v0.11.0
   NATIVE_SDK_COMMIT: 16f29572307c2cc133907537c4dfd98046d4e0f4
@@ -103,7 +105,10 @@ jobs:
           curl -fsSL -o gryphlink.tar.xz "$GRYPHLINK_URL"
           echo "$GRYPHLINK_SHA256  gryphlink.tar.xz" | shasum -a 256 -c
           mkdir gryphlink && tar -xJf gryphlink.tar.xz -C gryphlink
-          ls dxmt/*/ gryphlink/GRYPHLINK
+          curl -fsSL -o stock-mvk.tar "$STOCK_MVK_URL"
+          echo "$STOCK_MVK_SHA256  stock-mvk.tar" | shasum -a 256 -c
+          mkdir stock-mvk && tar -xf stock-mvk.tar -C stock-mvk
+          ls dxmt/*/ gryphlink/GRYPHLINK stock-mvk/MoltenVK/MoltenVK/dynamic/dylib/macOS/libMoltenVK.dylib
       - name: Build the Windows helpers
         run: |
           set -euo pipefail
@@ -118,6 +123,7 @@ jobs:
           WINE_INSTALL: ${{ runner.temp }}/wine-validation/wine-install
           DXMT_DIR: ${{ runner.temp }}/dxmt/${{ env.DXMT_VERSION }}
           MVK_DIR: ${{ runner.temp }}/moltenvk
+          STOCK_MVK_DYLIB: ${{ runner.temp }}/stock-mvk/MoltenVK/MoltenVK/dynamic/dylib/macOS/libMoltenVK.dylib
           GRYPHLINK_DIR: ${{ runner.temp }}/gryphlink/GRYPHLINK
           TOOLS_DIR: ${{ runner.temp }}/tools
         run: PATCH_COMMIT="$(git rev-parse --short HEAD)" bash engine/assemble.sh "$RUNNER_TEMP/engine"

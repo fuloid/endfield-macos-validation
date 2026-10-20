@@ -7,6 +7,7 @@
 # WINE_INSTALL   installed, bundled Wine (build-mac.sh build + bundle), with lib/external
 # DXMT_DIR       extracted dxmt-<version>-builtin release (x86_64-windows/, x86_64-unix/)
 # MVK_DIR        patched MoltenVK build output (libMoltenVK.dylib, LICENSE.MoltenVK)
+# STOCK_MVK_DYLIB optional: the stock MoltenVK release dylib, for the graphics diagnostics setting
 # GRYPHLINK_DIR  the GRYPHLINK launcher folder, without games/
 # TOOLS_DIR      gryphfield-watch.exe and direct-launch.exe
 set -euo pipefail
@@ -78,6 +79,12 @@ mkdir -p "$OUT/moltenvk"
 cp "$MVK_DIR/libMoltenVK.dylib" "$OUT/moltenvk/"
 lipo "$OUT/moltenvk/libMoltenVK.dylib" -verify_arch x86_64
 cp "$MVK_DIR/LICENSE.MoltenVK" "$OUT/licenses/MoltenVK-LICENSE.txt" 2>/dev/null || true
+# Stock MoltenVK, used instead when config.json sets "moltenvk_stock": true (diagnostics)
+if [ -n "${STOCK_MVK_DYLIB:-}" ]; then
+    mkdir -p "$OUT/moltenvk-stock"
+    cp "$STOCK_MVK_DYLIB" "$OUT/moltenvk-stock/libMoltenVK.dylib"
+    lipo "$OUT/moltenvk-stock/libMoltenVK.dylib" -verify_arch x86_64
+fi
 
 # Bundled GRYPHLINK (copied into the prefix on first run)
 mkdir -p "$OUT/gryphlink"

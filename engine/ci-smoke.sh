@@ -92,6 +92,13 @@ mkdir -p "$LIB"
 cat "$OUT/location-ok.jsonl"
 check 'check-location accepts a writable folder' done_ok "$OUT/location-ok.jsonl"
 /bin/bash "$E" check-location "$OUT/home/prefix/drive_c" > "$OUT/location-bad.jsonl" 2>&1
+# Graphics diagnostics settings: all four non-default values reach the Wine environment
+check 'stock MoltenVK is bundled for the diagnostics setting'     lipo "$ENGINE/moltenvk-stock/libMoltenVK.dylib" -verify_arch x86_64
+printf '{"moltenvk_stock":true,"mvk_argument_buffers":false,"wined3d_csmt":false,"metal_validation":true}
+'     > "$OUT/home/config.json"
+launch wined3d 0 diagnostics
+check 'diagnostics settings reach the Wine log header'     grep -q 'csmt=0x0, diagnostics: stock-moltenvk no-argument-buffers no-csmt metal-validation' "$OUT/wine-diagnostics.log"
+rm -f "$OUT/home/config.json"
 check 'check-location rejects a folder inside the prefix' grep -q '"code":"LOCATION_INVALID"' "$OUT/location-bad.jsonl"
 printf '{"library_dir":"%s"}
 ' "$LIB" > "$OUT/home/config.json"
