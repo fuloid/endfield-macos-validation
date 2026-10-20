@@ -43,13 +43,11 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 240
     env:
-      WORK_DIR: ${{ runner.temp }}/crossover-experimental
       TOOL_BREW: /opt/homebrew/bin/brew
       INTEL_BREW: /usr/local/bin/brew
       JOBS: '2'
       HOMEBREW_NO_AUTO_UPDATE: '1'
       HOMEBREW_NO_INSTALL_CLEANUP: '1'
-      CCACHE_DIR: ${{ runner.temp }}/crossover-ccache
       CCACHE_MAXSIZE: 1G
       CCACHE_COMPILERCHECK: content
       CC: ccache /usr/bin/clang -arch x86_64
@@ -65,6 +63,9 @@ jobs:
           persist-credentials: false
       - name: Record environment
         run: |
+          export WORK_DIR="$RUNNER_TEMP/crossover-experimental"
+          echo "WORK_DIR=$WORK_DIR" >> "$GITHUB_ENV"
+          echo "CCACHE_DIR=$RUNNER_TEMP/crossover-ccache" >> "$GITHUB_ENV"
           mkdir -p "$WORK_DIR/diagnostics"
           { sw_vers; uname -a; xcodebuild -version; /usr/bin/clang --version; git rev-parse HEAD; } | tee "$WORK_DIR/diagnostics/environment.txt"
       - name: Install known native tools and x86_64 runtime dependencies
