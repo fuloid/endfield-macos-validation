@@ -30,9 +30,15 @@ version and graphics settings before claiming equivalence.
   a step (GitHub does not expose `runner` in job-level env).
 - `5aaff88427faf57a8a558202db434af4377093c4`: run the original Mach-dependent MSync
   test on macOS instead of Linux.
+- `c5e6d6ce2e02a6ad969d548f09aee4c45913d90f`: constrain artifact evidence and
+  correct generated provenance metadata.
+- `377e7f7`: load the three configured Wine SONAMEs in the dylib smoke.
+- `4523079`: retry transient fresh-prefix initialization in the isolated CI
+  harness and retain each attempt's logs.
 
-All three were committed with `-S`, verified locally as good signatures, and
-pushed to the authorized branch. GitHub also verified the signing key.
+All experiment commits were committed with `-S`, verified locally as good
+signatures, and pushed to the authorized branch. GitHub also verified the signing
+key.
 
 ## Validation evidence
 
@@ -48,11 +54,22 @@ pushed to the authorized branch. GitHub also verified the signing key.
   source verification, full x86_64 macOS configuration and original MSync WaitAll
   test passed (11/11 cases). Full Wine build/install, CrossOver's native
   `macdrv_functions` export check, pipe2-import check and dylib bundling passed.
-  CPU/direct-syscall/dylib and assembled launcher steps completed with success
-  conclusions. The run was cancelled during evidence upload: the original path
-  included the temporary prefix (including Wine drive mappings). The corrected
-  workflow uploads only logs/screenshots and supports explicit reuse of the
-  completed matching Wine cache. Exact probe output and final rerun are pending.
+  The run was cancelled during evidence upload because the original path included
+  the temporary prefix (including Wine drive mappings). The corrected workflow
+  uploads only logs/screenshots and supports explicit reuse of the completed
+  matching Wine cache.
+- [Corrected probe run 39445688470](https://github.com/fuloid/endfield-macos-validation/actions/runs/39445688470):
+  source/cache provenance, all nine Wine startup/CPU/syscall/dylib checks, and
+  engine assembly passed. The engine contract step exposed the fresh-prefix
+  `wineboot` issue below, so its final gate correctly failed.
+- [Final macOS validation run 39447511931](https://github.com/fuloid/endfield-macos-validation/actions/runs/39447511931):
+  source/cache provenance, the same nine standalone Wine checks, and the full
+  engine/launcher smoke passed; final workflow conclusion is success. The fresh
+  prefix setup failed once with WineUSB INF resource-copy error 1812, succeeded
+  on its second attempt, then the contract suite reported zero failures. Wined3D
+  started GRYPHLINK; DXMT started it informationally and loaded `winemetal.dll`;
+  CrossOver's `macdrv_functions` export check passed. This is CI VM smoke only,
+  not game or sustained rendering validation.
 
 The completed Wine build was cached under
 `crossover-install-v1-macOS-ARM64-901a34458ac13190c6f2c798aa9ab5119222fd90ae90c117ff5efb92cb2b82e7`.
