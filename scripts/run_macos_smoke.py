@@ -81,10 +81,20 @@ def main():
         content = (out / 'probe.log').read_text(errors='replace')
         if 'Runtime checks: 8, failures: 0' not in content or content.count('PASS ') != 8:
             raise RuntimeError('Probe did not report all eight passing checks')
-        report.update(passed=True, nop_skip_trace_found='-byte NOP' in content,
+        report.update(nop_skip_trace_found='-byte NOP' in content,
                       xgetbv_emulation_trace_found='emulated xgetbv' in content)
         print('\n'.join(line for line in content.splitlines() if any(
             word in line for word in ['CPUID:', 'PASS ', 'FAIL ', 'INFO ', 'Runtime checks:', 'emulated xgetbv', '-byte NOP', 'executable page'])), flush=True)
+        # Endfield's protector makes direct syscalls; a failing one exits the game with 0xDEADC0DE (0016).
+        execute('compile-syscall-probe', ['x86_64-w64-mingw32-gcc', '-O2', '-static', '-Wall', '-Wextra',
+                                         '-Werror', ROOT / 'tools/syscall-probe/syscall-probe.c',
+                                         '-o', out / 'syscall-probe.exe'], 120)
+        execute('syscall-probe', [wine, out / 'syscall-probe.exe'], 90)
+        content = (out / 'syscall-probe.log').read_text(errors='replace')
+        print('\n'.join(line for line in content.splitlines() if ':trace:' not in line), flush=True)
+        if 'PASS direct syscall on main and worker threads' not in content:
+            raise RuntimeError('Direct syscall probe did not pass')
+        report.update(direct_syscall_passed=True, passed=True)
     finally:
         (out / 'smoke.json').write_text(json.dumps(report, indent=2) + '\n')
         server = prefix / 'bin/wineserver'

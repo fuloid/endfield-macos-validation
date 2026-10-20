@@ -1,0 +1,33 @@
+From: Gryphfield
+Subject: [PATCH] ntdll: Restore the TEB GSBASE before entering the dispatcher from SIGSYS.
+
+On macOS 14+, a raw `syscall` instruction from Windows code raises SIGSYS, and
+sigsys_handler() redirects it to __wine_syscall_dispatcher_prolog_end.
+init_handler() switches GSBASE to the pthread TEB for the handler (macOS does
+not restore GSBASE on sigreturn), but unlike the other handlers sigsys_handler()
+never switches it back. The dispatcher then loads the TEB from %gs:0x30, gets 0,
+and faults reading 0x320 (amd64_thread_data()->pthread_teb); the syscall
+returns STATUS_ACCESS_VIOLATION.
+
+Endfield.exe's protector makes a direct NtQueryInformationProcess syscall and
+kills the game with 0xDEADC0DE when it fails. tools/syscall-probe reproduces it
+without the game (normal call succeeds, direct call returns c0000005 with
+info[1]=0x320). CrossOver 26.3 (Wine 11.0) does not switch GSBASE on macOS and
+passes the same probe.
+
+Applies after 0003, which added the __APPLE__ block in sigsys_handler().
+---
+diff --git a/dlls/ntdll/unix/signal_x86_64.c b/dlls/ntdll/unix/signal_x86_64.c
+index 576ac56..8150844 100644
+--- a/dlls/ntdll/unix/signal_x86_64.c
++++ b/dlls/ntdll/unix/signal_x86_64.c
+@@ -2805,6 +2805,9 @@ static void sigsys_handler( int signal, siginfo_t *siginfo, void *_sigcontext )
+             RIP_sig(sigcontext) = (ULONG64)rosetta_restore_mxcsr_thunk;
+         }
+     }
++    /* init_handler() switched GSBASE to the pthread TEB, and nothing switches it back
++     * before the dispatcher, which reads the TEB from %gs:0x30. */
++    _thread_set_tsd_base( (uint64_t)data->teb );
+ #endif
+ }
+ #endif
