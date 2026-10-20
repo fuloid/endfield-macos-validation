@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -58,7 +59,21 @@ def main():
         # gaps even when the Wine smoke doesn't reach the corresponding feature.
         if run('compile-dlopen', ['/usr/bin/clang', '-arch', 'x86_64', '-O2', '-Wall',
                 '-Wextra', '-Werror', ROOT / 'scripts/mac_dlopen_probe.c', '-o', out / 'dlopen-probe']):
-            run('dlopen', [out / 'dlopen-probe', *sorted((prefix / 'lib/external').glob('*.dylib'))])
+            # Wine's dependent libraries may include many dylibs, but the probe
+            # intentionally accepts exactly the three SONAMEs in BUILD-config.h.
+            config = (prefix / 'BUILD-config.h').read_text()
+            libraries = []
+            for macro in ['SONAME_LIBFREETYPE', 'SONAME_LIBGNUTLS', 'SONAME_LIBVULKAN']:
+                match = re.search(r'^#define ' + macro + r' "([^"]+)"', config, re.M)
+                if not match:
+                    raise RuntimeError(f'{macro} missing from the build configuration')
+                library = Path(match.group(1))
+                if not library.is_absolute():
+                    library = prefix / 'lib/external' / library.name
+                if not library.is_file():
+                    raise RuntimeError(f'{macro}: {library} is not bundled')
+                libraries.append(library)
+            run('dlopen', [out / 'dlopen-probe', *libraries])
     finally:
         subprocess.run([str(prefix / 'bin/wineserver'), '-k'], env=env, timeout=30, check=False)
         report = {'scope': 'Compilation, startup, dylib closure, CPU exceptions and direct syscalls only',
