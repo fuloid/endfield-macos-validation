@@ -5,7 +5,8 @@
  *
  * Every case clears the backbuffer to black and draws red over the whole window, then checks a
  * pixel in the bottom-left triangle (BL), the top-right triangle (TR) and the centre.
- *   quadtest.exe [frames]      prints one PASS/FAIL line per case; exit code = failures
+ *   quadtest.exe [frames] [93]   prints one PASS/FAIL line per case; exit code = failures;
+ *                                "93" asks for feature level 9_3 only
  */
 #define COBJMACROS
 #define WIN32_LEAN_AND_MEAN
@@ -215,6 +216,9 @@ int main(int argc, char **argv)
 {
     int frames = argc > 1 ? atoi(argv[1]) : 2, i;
     HMODULE compiler;
+    const char *vs_target, *ps_target;
+    static const D3D_FEATURE_LEVEL levels_93[] = {D3D_FEATURE_LEVEL_9_3};
+    int force_93 = argc > 2 && !strcmp(argv[2], "93");
     compile_fn compile;
     ID3DBlob *vs_blob = NULL, *ps_blob = NULL, *errors = NULL;
     ID3D11VertexShader *vs;
@@ -249,7 +253,8 @@ int main(int argc, char **argv)
     sc.OutputWindow = hwnd;
     sc.Windowed = TRUE;
     sc.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
-    if (FAILED(D3D11CreateDeviceAndSwapChain(NULL, D3D_DRIVER_TYPE_HARDWARE, NULL, 0, NULL, 0,
+    if (FAILED(D3D11CreateDeviceAndSwapChain(NULL, D3D_DRIVER_TYPE_HARDWARE, NULL, 0,
+                                             force_93 ? levels_93 : NULL, force_93 ? 1 : 0,
                                              D3D11_SDK_VERSION, &sc, &swapchain, &dev, &level, &ctx)))
     {
         printf("D3D11CreateDeviceAndSwapChain failed\n");
@@ -263,8 +268,13 @@ int main(int argc, char **argv)
         printf("d3dcompiler_47.dll unavailable\n");
         return 100;
     }
-    if (FAILED(compile(shader_src, sizeof(shader_src) - 1, "quad", NULL, NULL, "vs", "vs_4_0", 0, 0, &vs_blob, &errors)) ||
-        FAILED(compile(shader_src, sizeof(shader_src) - 1, "quad", NULL, NULL, "ps", "ps_4_0", 0, 0, &ps_blob, &errors)))
+    /* below feature level 10_0 (wined3d on MoltenVK, which lacks geometry shaders) only
+       level_9 shader targets are valid, as apps such as ANGLE use them there */
+    vs_target = level >= D3D_FEATURE_LEVEL_10_0 ? "vs_4_0" : "vs_4_0_level_9_3";
+    ps_target = level >= D3D_FEATURE_LEVEL_10_0 ? "ps_4_0" : "ps_4_0_level_9_3";
+    printf("shader targets %s %s\n", vs_target, ps_target);
+    if (FAILED(compile(shader_src, sizeof(shader_src) - 1, "quad", NULL, NULL, "vs", vs_target, 0, 0, &vs_blob, &errors)) ||
+        FAILED(compile(shader_src, sizeof(shader_src) - 1, "quad", NULL, NULL, "ps", ps_target, 0, 0, &ps_blob, &errors)))
     {
         printf("shader compile failed: %s\n", errors ? (const char *)ID3D10Blob_GetBufferPointer(errors) : "?");
         return 100;
