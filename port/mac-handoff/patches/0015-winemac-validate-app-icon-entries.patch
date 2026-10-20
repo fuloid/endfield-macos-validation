@@ -1,0 +1,86 @@
+From: Gryphfield
+Subject: [PATCH] winemac.drv: Validate the app icon entries.
+
+When Endfield.exe creates its first window, winemac builds the Dock icon from
+the exe's icons. In that process the icon list that create_app_icon_images()
+gets back from the macdrv_app_icon user callback arrives corrupted (seen on
+the CI VM and on an M-series Mac): the first entry's handle is invalid
+("Error retrieving icon frame 0") and the next one has a garbage size, so
+width * height * 4 overflows an int and the memset() in
+create_cgimage_from_icon_bitmaps() runs off the DIB inside libsystem. The
+desktop window's creation then fails and the game exits without a window.
+The game's protector hooks this thread, which is the likely cause.
+
+- Copy the entries out of the finished callback's user-stack frame at once
+  (NtCallbackReturn() returns a pointer into it, not a copy).
+- Skip entries whose size is outside the 1..256 that macdrv_app_icon() can
+  return, with an ERR so the corruption stays visible in logs.
+- Reject icon sizes in create_cgimage_from_icon() that would overflow.
+
+Upstream Wine master (as of 2026-10-20) has the same code.
+License: Wine LGPL-2.1-or-later.
+---
+diff --git a/dlls/winemac.drv/image.c b/dlls/winemac.drv/image.c
+index 7fb45f3..8a6c33f 100644
+--- a/dlls/winemac.drv/image.c
++++ b/dlls/winemac.drv/image.c
+@@ -190,6 +190,13 @@ CGImageRef create_cgimage_from_icon(HANDLE icon, int width, int height)
+         NtGdiDeleteObjectApp(info.hbmMask);
+     }
+ 
++    /* width * height * 4 below must not overflow an int */
++    if (width <= 0 || height <= 0 || width > 4096 || height > 4096)
++    {
++        WARN("invalid icon size %dx%d\n", width, height);
++        return NULL;
++    }
++
+     hdc = NtGdiCreateCompatibleDC(0);
+ 
+     bitmapinfo->bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+@@ -249,21 +256,25 @@ CFArrayRef create_app_icon_images(void)
+ {
+     struct dispatch_callback_params params = {.callback = app_icon_callback};
+     CFMutableArrayRef images = NULL;
+-    struct app_icon_entry *entries;
++    struct app_icon_entry entries[64], *ret_entries;
+     ULONG ret_len;
+     unsigned count;
+     int i;
+ 
+     TRACE("()\n");
+ 
+-    if (KeUserDispatchCallback(&params, sizeof(params), (void**)&entries, &ret_len) ||
+-        (ret_len % sizeof(*entries)))
++    if (KeUserDispatchCallback(&params, sizeof(params), (void**)&ret_entries, &ret_len) ||
++        (ret_len % sizeof(*entries)) || ret_len > sizeof(entries))
+     {
+         WARN("incorrect callback result\n");
+         return NULL;
+     }
+     count = ret_len / sizeof(*entries);
+-    if (!count || !entries) return NULL;
++    if (!count || !ret_entries) return NULL;
++
++    /* The returned entries are in the finished callback's frame on the user
++       stack, which nothing protects any more, so copy them first. */
++    memcpy(entries, ret_entries, ret_len);
+ 
+     images = CFArrayCreateMutable(NULL, count, &kCFTypeArrayCallBacks);
+     if (!images)
+@@ -277,6 +288,15 @@ CFArrayRef create_app_icon_images(void)
+         struct app_icon_entry *icon = &entries[i];
+         CGImageRef cgimage = NULL;
+         HICON handle = UlongToHandle(icon->icon);
++
++        /* macdrv_app_icon() only returns sizes from 1 to 256 */
++        if (!icon->width || !icon->height || icon->width > 256 || icon->height > 256)
++        {
++            ERR("skipping corrupt app icon entry %d: icon %#x size %ux%u\n",
++                i, icon->icon, icon->width, icon->height);
++            continue;
++        }
++
+         cgimage = create_cgimage_from_icon(handle, icon->width, icon->height);
+         NtUserDestroyCursor(handle, 0);
+ 

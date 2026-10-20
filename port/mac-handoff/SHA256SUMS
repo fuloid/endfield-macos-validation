@@ -1,4 +1,4 @@
-743513487e9be6e13c37bc206fe1da11d0157c2c9498e42871238815148b52aa  MAC_HANDOFF.md
+6e348be917daa6d61fa2b03085563da6042ab5876591431ea1ea58ae6b0be969  MAC_HANDOFF.md
 eaac705b5f8902870d1ad44a1fd54773263c5e711fca3bd5ab8a25303aae5049  AUDIT.md
 274fdb3e42d2d3ad2d13c4219f8d5f3bbf96266688ceda5b944c31608a709cd6  build-mac.sh
 5e26e8951671f1adca635f8db494f8442d8bb0c3973b52b15451590b92207665  noptest.c
@@ -16,6 +16,7 @@ d60ce1b3f7f208c2382ac782c76d6b1744af896c5692c7dac32c0b6491c6331d  patches/0011-n
 8539f19575822f19ff3181eb25d74f7c0cb043538ace9a9e0be39607ac239a79  patches/0012-ntdll-bound-select-timeouts-in-NtDelayExecution.patch
 c53e477deb3a365b574e046d0e183f1ce9b72d216d6ae11b269f7707a8492bda  patches/0013-winemac-export-macdrv_functions-for-DXMT.patch
 2ae8a68c67288a5315eab69dfedc5f9c1aaad163db0c4b21f889bfb7d4834a5d  patches/0014-winemac-cache-the-window-under-the-cursor.patch
+10335817ec2e063e6fdc61692093e074ccc13afc69606b7e8b78beacb7ec7638  patches/0015-winemac-validate-app-icon-entries.patch
 7138cc2a441ca9c1bd507c73095b1753b8312f829c70729a29845b12ad47dd55  patches/0101-ace-core-ntoskrnl-Implement-ACE-CORE-new-imports.patch
 b9f1fa7c6806fe0903ede53e120b8a0fd4334795eea38ad6b6b6ab5efdfbefbc  patches/0103-ace-core-ntoskrnl.exe-Call-DriverInit-with-bits-48-64-of-return-address-set.patch
 f18cb756bae2fe85aa256569d37c35e31394e4d9422cf8b0b7f86ddf59d8a653  patches/0104-ace-core-ntoskrnl.exe-Add-MmCopyMemory-stub.patch
