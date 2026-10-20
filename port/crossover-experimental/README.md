@@ -32,6 +32,10 @@ Sources:
   `ace-core/0001`. These are deliberately not silently adopted. The baseline
   corresponds to the existing local source; matching a friend's later installation
   requires their exact FineWine version/patch hashes and graphics configuration.
+  The pinned `ace-core/0017`–`0019` notes explicitly say ACE-CORE still raises
+  `KeBugCheckEx 0x65636154` ("Tace") after those callback experiments. This
+  baseline has no evidence of passing the friend's current ACE path; obtain the
+  exact working FineWine revision before treating this as a compatible replacement.
 
 ## Build
 
@@ -105,7 +109,9 @@ See the existing engine LICENSES.md for the bundled graphics/runtime components.
 and production caches. It verifies the archive and patches on Linux, runs the
 original deterministic MSync WaitAll race test on macOS (it needs Mach headers), builds the full install,
 and runs CPU exception, normal/direct NtQueryInformationProcess (main + worker),
-startup and every-bundled-dylib checks with Intel Homebrew hidden. Checks run
+Wine startup, and the three configured external SONAME load checks with Intel
+Homebrew hidden. The nine reported outcomes include compilation checks; five
+actually invoke Wine. Checks run
 independently and write machine-readable results even if another probe fails.
 The existing Gryphfield smoke then exercises setup, launcher and location/error
 contracts against a new assembled engine. Graphics on GitHub's VM have limits.
@@ -119,5 +125,8 @@ Prior upstream engine direct-syscall reference:
 must still validate a fresh standalone prefix, GRYPHLINK installation/login,
 launcher rendering with DXMT, game startup/ACE initialization, sustained gameplay,
 graphics modes and behavior with their exact macOS/Rosetta/FineWine versions.
+The CI requires WineD3D to start GRYPHLINK; DXMT startup and module loading are
+informational, and Vulkan is not exercised. The test does not cover ACE-CORE's
+`Tace` watchdog.
 Existing upstream syscall work and the paused half-window investigation are
 outside this experiment.

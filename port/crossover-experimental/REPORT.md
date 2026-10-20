@@ -21,6 +21,13 @@ ACE-CORE imports patch are excluded from this baseline. Review/authorization is
 needed before adopting a different ACE baseline; obtain the friend's exact
 version and graphics settings before claiming equivalence.
 
+**Known ACE limitation in the pinned baseline:** the vendored FineWine patch notes
+say the ACE-CORE `KeBugCheckEx 0x65636154` ("Tace") watchdog still fires after
+patches 0017–0019, including the cross-process handle and image notification
+experiments. The newer ACE-CORE patch revision is not included. This experiment
+has not tested the watchdog, so syscall success and launcher smoke do not
+establish that the friend's current game passes ACE.
+
 ## Implementation and signed commits
 
 - `edc29a8f3c200ef637f5b6555a8ac33a7df092a5`: full install/build scripts, original
@@ -59,15 +66,19 @@ key.
   uploads only logs/screenshots and supports explicit reuse of the completed
   matching Wine cache.
 - [Corrected probe run 39445688470](https://github.com/fuloid/endfield-macos-validation/actions/runs/39445688470):
-  source/cache provenance, all nine Wine startup/CPU/syscall/dylib checks, and
+  source/cache provenance, nine reported startup/CPU/syscall/dylib outcomes
+  (including compile checks; five invoke Wine), and
   engine assembly passed. The engine contract step exposed the fresh-prefix
   `wineboot` issue below, so its final gate correctly failed.
 - [Final macOS validation run 39447511931](https://github.com/fuloid/endfield-macos-validation/actions/runs/39447511931):
-  source/cache provenance, the same nine standalone Wine checks, and the full
+  source/cache provenance, the same nine reported standalone Wine outcomes, and the full
   engine/launcher smoke passed; final workflow conclusion is success. The fresh
-  prefix setup failed once with WineUSB INF resource-copy error 1812, succeeded
-  on its second attempt, then the contract suite reported zero failures. Wined3D
-  started GRYPHLINK; DXMT started it informationally and loaded `winemetal.dll`;
+  prefix setup failed once with WineUSB INF resource-copy error 1812, then
+  succeeded on its second attempt against the same partially initialized
+  temporary prefix. The cause is unresolved; a first failure returns
+  `PREFIX_FAILED`, so the user would need to retry setup. The contract suite then
+  reported zero failures. Wined3D started GRYPHLINK; DXMT startup was
+  informational and it loaded `winemetal.dll`;
   CrossOver's `macdrv_functions` export check passed. This is CI VM smoke only,
   not game or sustained rendering validation.
 
@@ -83,6 +94,15 @@ The unchanged upstream comparison is
 which failed on shipped upstream Wine: normal NtQueryInformationProcess worked,
 the direct syscall faulted. This experiment reuses that probe; it does not change
 or repeat the upstream syscall implementation work.
+
+The final run reused the Wine install built under commit `5aaff88` in run
+39432948349. Its recorded `BUILD-INFO.txt` and that run's logs identify the
+source revision; the final run did not rebuild Wine. The app artifact has not
+been rebuilt as a release asset with the CrossOver engine.
+
+The app-icon validation patch shipped with the current Wine 11.19 engine is not
+included in this Wine 11.0 baseline. Check whether CrossOver 26.3 has an
+equivalent before comparing against the friend's reported startup failure.
 
 ## Dependency gaps and integration proposal
 

@@ -80,7 +80,7 @@ jobs:
         if: ${{ !inputs.rebuild }}
         with:
           path: ${{ env.WORK_DIR }}/wine-install
-          key: ${{ inputs.wine_cache_key || format('crossover-install-v1-{0}-{1}-{2}', runner.os, runner.arch, hashFiles('port/crossover-experimental/**', '!port/crossover-experimental/REPORT.md', 'port/mac-handoff/build-mac.sh', 'scripts/ci-macos-deps.sh')) }}
+          key: ${{ inputs.wine_cache_key || format('crossover-install-v1-{0}-{1}-{2}', runner.os, runner.arch, hashFiles('.github/workflows/validate-crossover.yml', 'port/crossover-experimental/**', '!port/crossover-experimental/REPORT.md', 'port/mac-handoff/build-mac.sh', 'scripts/ci-macos-deps.sh')) }}
       - name: Require an explicitly requested cache
         if: inputs.wine_cache_key != ''
         run: test '${{ steps.wine.outputs.cache-hit }}' = true
@@ -118,7 +118,7 @@ jobs:
         if: success() && steps.wine.outputs.cache-hit != 'true'
         with:
           path: ${{ env.WORK_DIR }}/wine-install
-          key: crossover-install-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('port/crossover-experimental/**', '!port/crossover-experimental/REPORT.md', 'port/mac-handoff/build-mac.sh', 'scripts/ci-macos-deps.sh') }}
+          key: crossover-install-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/workflows/validate-crossover.yml', 'port/crossover-experimental/**', '!port/crossover-experimental/REPORT.md', 'port/mac-handoff/build-mac.sh', 'scripts/ci-macos-deps.sh') }}
       - name: CPU, direct syscall and dylib smoke (Intel Homebrew hidden)
         id: smoke
         continue-on-error: true

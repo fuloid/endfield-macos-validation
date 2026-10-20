@@ -55,8 +55,7 @@ def main():
                 contains='PASS direct syscall on main and worker threads')
         if tests['compile-rosetta']['passed']:
             run('rosetta', [wine, out / 'rosetta.exe'], contains='Runtime checks: 8, failures: 0')
-        # Load every bundled dylib in a separate x86_64 process, catching closure
-        # gaps even when the Wine smoke doesn't reach the corresponding feature.
+        # Load the three configured SONAME dylibs in a separate x86_64 process.
         if run('compile-dlopen', ['/usr/bin/clang', '-arch', 'x86_64', '-O2', '-Wall',
                 '-Wextra', '-Werror', ROOT / 'scripts/mac_dlopen_probe.c', '-o', out / 'dlopen-probe']):
             # Wine's dependent libraries may include many dylibs, but the probe
@@ -74,6 +73,9 @@ def main():
                     raise RuntimeError(f'{macro}: {library} is not bundled')
                 libraries.append(library)
             run('dlopen', [out / 'dlopen-probe', *libraries])
+    except Exception as exc:
+        tests['probe-error'] = {'passed': False, 'error': f'{type(exc).__name__}: {exc}'}
+        raise
     finally:
         subprocess.run([str(prefix / 'bin/wineserver'), '-k'], env=env, timeout=30, check=False)
         report = {'scope': 'Compilation, startup, dylib closure, CPU exceptions and direct syscalls only',
