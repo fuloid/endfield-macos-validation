@@ -42,15 +42,30 @@ def main():
             run(['git', 'apply', '--check', patch], cwd=work)
             run(['git', 'apply', patch], cwd=work)
         source = target.read_text()
+    if args.source:
+        window_source = (args.source / 'server/window.c').read_text()
+    else:
+        window = work / 'server/window.c'
+        window.parent.mkdir(parents=True)
+        url = f'https://raw.githubusercontent.com/wine-mirror/wine/{REV}/server/window.c'
+        with urllib.request.urlopen(url, timeout=90) as response:
+            window.write_bytes(response.read())
+        patch = HANDOFF / 'patches/0020-server-preserve-cross-process-layered-child-clipping.patch'
+        run(['git', 'apply', '--check', patch], cwd=work)
+        run(['git', 'apply', patch], cwd=work)
+        window_source = window.read_text()
     compiler = shlex.split(os.environ.get('HOST_CC', 'cc'))
     report = {'revision': REV, 'source': str(args.source) if args.source else 'pinned download + patches',
-              'patched_signal_sha256': hashlib.sha256(source.encode()).hexdigest(), 'tests': {}}
+              'patched_signal_sha256': hashlib.sha256(source.encode()).hexdigest(),
+              'patched_window_sha256': hashlib.sha256(window_source.encode()).hexdigest(), 'tests': {}}
     try:
-        for name, helper, filename, summary in [
-            ('noptest', 'rosetta_skip_long_nop', 'extracted.c', 'NOP checks: 8735, failures: 0'),
-            ('xgetbvtest', 'rosetta_emulate_xgetbv', 'extracted_xgetbv.c', 'XGETBV checks: 11, failures: 0')]:
+        for name, helper, filename, summary, helper_source in [
+            ('noptest', 'rosetta_skip_long_nop', 'extracted.c', 'NOP checks: 8735, failures: 0', source),
+            ('xgetbvtest', 'rosetta_emulate_xgetbv', 'extracted_xgetbv.c', 'XGETBV checks: 11, failures: 0', source),
+            ('layeredtest', 'set_region_client_rect', 'extracted_layered.c',
+             'Layered clipping checks: 5, failures: 0', window_source)]:
             report['tests'][name] = {'passed': False}
-            match = re.search(r'^static (?:inline )?BOOL ' + helper + r'\(.*?^\}', source, re.M | re.S)
+            match = re.search(r'^static (?:inline )?(?:BOOL|void) ' + helper + r'\(.*?^\}', helper_source, re.M | re.S)
             if not match:
                 raise RuntimeError(f'Helper missing: {helper}')
             body = match.group(0) + '\n'
