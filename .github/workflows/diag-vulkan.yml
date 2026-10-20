@@ -11,6 +11,10 @@ on:
         description: 'Launches per variant'
         type: string
         default: '2'
+      quadtest_only:
+        description: 'Run only the quadtest stage (skip GRYPHLINK launches)'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -48,6 +52,10 @@ jobs:
           lipo "$dylib" -verify_arch x86_64
           echo "STOCK_DYLIB=$dylib" >> "$GITHUB_ENV"
           lipo -info "$dylib"
+      - name: Build quadtest.exe
+        run: |
+          brew install mingw-w64 >/dev/null
+          x86_64-w64-mingw32-gcc -O2 -Wall -Wextra -Werror tools/quadtest/quadtest.c             -o "$RUNNER_TEMP/quadtest.exe" -ld3d11 -ldxguid
       - name: Run the variants (Intel Homebrew hidden)
         run: |
           hide() { for d in /usr/local/opt /usr/local/Cellar; do [ ! -e "$d" ] || sudo mv "$d" "$d.hidden"; done; }
@@ -55,7 +63,7 @@ jobs:
           trap unhide EXIT
           hide
           bash scripts/diag-vulkan.sh "$RUNNER_TEMP/app/Gryphfield.app/Contents/Resources/engine" \
-              "$STOCK_DYLIB" "$RUNNER_TEMP/diag" "${{ inputs.repeats }}"
+              "$STOCK_DYLIB" "$RUNNER_TEMP/diag" "${{ inputs.quadtest_only && '0' || inputs.repeats }}"               "$RUNNER_TEMP/quadtest.exe"
       - name: Upload evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -66,5 +74,6 @@ jobs:
             ${{ runner.temp }}/diag/*.err
             ${{ runner.temp }}/diag/*.log
             ${{ runner.temp }}/diag/*.png
+            ${{ runner.temp }}/diag/*.txt
           retention-days: 5
           if-no-files-found: warn
