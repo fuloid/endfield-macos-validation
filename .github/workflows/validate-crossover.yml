@@ -149,6 +149,24 @@ jobs:
           bash port/crossover-experimental/assemble.sh \
             "$RUNNER_TEMP/baseline-app/Gryphfield.app/Contents/Resources/engine" \
             "$RUNNER_TEMP/dxmt/v0.80" "$WORK_DIR/engine"
+      - name: Initialize fresh engine prefix (retry transient wineboot failure)
+        env:
+          GRYPHFIELD_HOME: ${{ env.WORK_DIR }}/engine-smoke/home
+          GRYPHFIELD_LOGS: ${{ env.WORK_DIR }}/engine-smoke/logs
+        run: |
+          mkdir -p "$GRYPHFIELD_HOME" "$GRYPHFIELD_LOGS"
+          for attempt in 1 2 3; do
+            events="$WORK_DIR/engine-smoke/preflight-$attempt.jsonl"
+            errors="$WORK_DIR/engine-smoke/preflight-$attempt.err"
+            /bin/bash "$WORK_DIR/engine/bin/gryphfield-engine" setup > "$events" 2> "$errors" || true
+            if grep -q '"event":"done","ok":true' "$events"; then
+              echo "Fresh prefix setup succeeded on attempt $attempt."
+              exit 0
+            fi
+            echo "Fresh prefix setup attempt $attempt failed; retrying."
+          done
+          echo 'Fresh prefix setup failed after three attempts.'
+          exit 1
       - name: Gryphfield setup and launcher contract smoke (Intel Homebrew hidden)
         id: engine_smoke
         continue-on-error: true
