@@ -1,0 +1,193 @@
+name: Validate experimental CrossOver engine
+
+'on':
+  workflow_dispatch:
+    inputs:
+      baseline_app_run_id:
+        description: 'Existing app artifact for unchanged GRYPHLINK, helpers and MoltenVK'
+        type: string
+        default: '39426019859'
+        required: true
+      rebuild:
+        description: 'Ignore the experimental Wine install cache'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: crossover-experimental-validation
+  cancel-in-progress: false
+
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Verify sources and apply all original FineWine patches
+        run: python3 port/crossover-experimental/prepare.py --work "$RUNNER_TEMP/crossover"
+      - name: Exercise FineWine MSync WaitAll rollback
+        run: python3 port/crossover-experimental/finewine/tests/test-msync-waitall.py "$RUNNER_TEMP/crossover/wine-src"
+
+  macos:
+    needs: source
+    runs-on: macos-15
+    timeout-minutes: 240
+    env:
+      WORK_DIR: ${{ runner.temp }}/crossover-experimental
+      TOOL_BREW: /opt/homebrew/bin/brew
+      INTEL_BREW: /usr/local/bin/brew
+      JOBS: '2'
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+      HOMEBREW_NO_INSTALL_CLEANUP: '1'
+      CCACHE_DIR: ${{ runner.temp }}/crossover-ccache
+      CCACHE_MAXSIZE: 1G
+      CCACHE_COMPILERCHECK: content
+      CC: ccache /usr/bin/clang -arch x86_64
+      CXX: ccache /usr/bin/clang++ -arch x86_64
+      OBJC: ccache /usr/bin/clang -arch x86_64
+      x86_64_CC: ccache x86_64-w64-mingw32-gcc
+      CFLAGS: -O2 -g0
+      CXXFLAGS: -O2 -g0
+      CROSSCFLAGS: -O2 -g0
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Record environment
+        run: |
+          mkdir -p "$WORK_DIR/diagnostics"
+          { sw_vers; uname -a; xcodebuild -version; /usr/bin/clang --version; git rev-parse HEAD; } | tee "$WORK_DIR/diagnostics/environment.txt"
+      - name: Install known native tools and x86_64 runtime dependencies
+        run: |
+          bash scripts/ci-macos-deps.sh 2>&1 | tee "$WORK_DIR/diagnostics/dependencies.log"
+          echo /opt/homebrew/bin >> "$GITHUB_PATH"
+          /opt/homebrew/bin/ccache --max-size "$CCACHE_MAXSIZE"
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        id: wine
+        if: ${{ !inputs.rebuild }}
+        with:
+          path: ${{ env.WORK_DIR }}/wine-install
+          key: crossover-install-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('port/crossover-experimental/**', 'port/mac-handoff/build-mac.sh', 'scripts/ci-macos-deps.sh') }}
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        if: steps.wine.outputs.cache-hit != 'true'
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: crossover-ccache-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: crossover-ccache-v1-${{ runner.os }}-${{ runner.arch }}-
+      - name: Prepare CrossOver 26.3.0 with exact FineWine baseline
+        if: steps.wine.outputs.cache-hit != 'true'
+        run: bash port/crossover-experimental/build.sh prepare
+      - name: Configure full standalone x86_64 Wine
+        if: steps.wine.outputs.cache-hit != 'true'
+        run: bash port/crossover-experimental/build.sh configure
+      - name: Build and install full Wine
+        id: build
+        if: steps.wine.outputs.cache-hit != 'true'
+        run: bash port/crossover-experimental/build.sh build
+      - name: Bundle x86_64 dylib closure
+        if: steps.wine.outputs.cache-hit != 'true'
+        run: bash port/crossover-experimental/build.sh bundle
+      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        if: success() && steps.wine.outputs.cache-hit != 'true'
+        with:
+          path: ${{ env.WORK_DIR }}/wine-install
+          key: crossover-install-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('port/crossover-experimental/**', 'port/mac-handoff/build-mac.sh', 'scripts/ci-macos-deps.sh') }}
+      - name: CPU, direct syscall and dylib smoke (Intel Homebrew hidden)
+        id: smoke
+        continue-on-error: true
+        run: |
+          hide() { for d in /usr/local/opt /usr/local/Cellar; do [ ! -e "$d" ] || sudo mv "$d" "$d.hidden"; done; }
+          unhide() { for d in /usr/local/opt /usr/local/Cellar; do [ ! -e "$d.hidden" ] || sudo mv "$d.hidden" "$d"; done; }
+          trap unhide EXIT
+          hide
+          python3 port/crossover-experimental/smoke.py --work "$WORK_DIR"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: Gryphfield-macos
+          run-id: ${{ inputs.baseline_app_run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/baseline-download
+      - name: Verify baseline app and fetch pinned open DXMT
+        run: |
+          (cd "$RUNNER_TEMP/baseline-download" && shasum -a 256 -c Gryphfield-macos.zip.sha256)
+          ditto -x -k "$RUNNER_TEMP/baseline-download/Gryphfield-macos.zip" "$RUNNER_TEMP/baseline-app"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/dxmt.tar.gz" https://github.com/3Shain/dxmt/releases/download/v0.80/dxmt-v0.80-builtin.tar.gz
+          echo "8f260e36b5739e68f3bad613381441385c4dc7b85b78ba8de653d5a6a264529d  $RUNNER_TEMP/dxmt.tar.gz" | shasum -a 256 -c
+          mkdir "$RUNNER_TEMP/dxmt"
+          tar -xzf "$RUNNER_TEMP/dxmt.tar.gz" -C "$RUNNER_TEMP/dxmt"
+      - name: Assemble compatible experimental engine with unchanged launcher
+        env:
+          WINE_INSTALL: ${{ env.WORK_DIR }}/wine-install
+        run: |
+          bash port/crossover-experimental/assemble.sh \
+            "$RUNNER_TEMP/baseline-app/Gryphfield.app/Contents/Resources/engine" \
+            "$RUNNER_TEMP/dxmt/v0.80" "$WORK_DIR/engine"
+      - name: Gryphfield setup and launcher contract smoke (Intel Homebrew hidden)
+        id: engine_smoke
+        continue-on-error: true
+        run: |
+          hide() { for d in /usr/local/opt /usr/local/Cellar; do [ ! -e "$d" ] || sudo mv "$d" "$d.hidden"; done; }
+          unhide() { for d in /usr/local/opt /usr/local/Cellar; do [ ! -e "$d.hidden" ] || sudo mv "$d.hidden" "$d"; done; }
+          trap unhide EXIT
+          hide
+          bash engine/ci-smoke.sh "$WORK_DIR/engine" "$WORK_DIR/engine-smoke"
+      - name: Package experimental runtime and engine, even if probes fail
+        if: always()
+        run: |
+          mkdir -p "$WORK_DIR/artifacts"
+          for item in wine-install engine; do
+            if [ -d "$WORK_DIR/$item" ]; then
+              COPYFILE_DISABLE=1 tar -czf "$WORK_DIR/artifacts/crossover-experimental-$item.tar.gz" -C "$WORK_DIR" "$item"
+            fi
+          done
+          (cd "$WORK_DIR/artifacts" && shasum -a 256 ./*.tar.gz > SHA256SUMS)
+      - name: Save compiler cache for failed builds too
+        if: always()
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: crossover-ccache-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Collect configuration and report scope
+        if: always()
+        run: |
+          cp "$WORK_DIR/wine-build/config.log" "$WORK_DIR/diagnostics/" 2>/dev/null || true
+          cp "$WORK_DIR/wine-build/include/config.h" "$WORK_DIR/diagnostics/" 2>/dev/null || true
+          {
+            echo 'Experimental CrossOver/FineWine; gameplay is NOT verified.'
+            echo 'CPU/syscall smoke: ${{ steps.smoke.outcome }}'
+            echo 'Engine/launcher smoke: ${{ steps.engine_smoke.outcome }}'
+            cat "$WORK_DIR/smoke/smoke.json" 2>/dev/null || true
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: crossover-experimental-evidence
+          path: |
+            ${{ env.WORK_DIR }}/diagnostics
+            ${{ env.WORK_DIR }}/*.log
+            ${{ env.WORK_DIR }}/smoke
+            ${{ env.WORK_DIR }}/engine-smoke
+          retention-days: 7
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: crossover-experimental-runtime
+          path: ${{ env.WORK_DIR }}/artifacts
+          retention-days: 7
+          compression-level: 0
+          if-no-files-found: ignore
+      - name: Require passing smoke results
+        if: always()
+        run: |
+          test '${{ steps.smoke.outcome }}' = success
+          test '${{ steps.engine_smoke.outcome }}' = success
