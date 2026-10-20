@@ -1,0 +1,152 @@
+name: Build DXMT (experiment)
+
+# Builds DXMT from source with the recipe of its own CI (3Shain/dxmt .github/workflows/ci.yml, v0.80):
+# LLVM 15.0.7 for Darwin x86_64, 3Shain's Wine 8.16 toolchain, mingw-w64, meson. Only the x86_64
+# build Gryphfield uses is made. With apply_patch, tools/dxmt/*.patch is applied first (a Metal layer
+# that is not opaque for layered windows). The result is a frozen .tar.xz with the same layout as
+# DXMT's dxmt-v0.80-builtin.tar.gz (<name>/x86_64-windows, <name>/x86_64-unix), to store and fetch by hash.
+
+'on':
+  workflow_dispatch:
+    inputs:
+      dxmt_ref:
+        description: 'DXMT tag, branch or commit (v0.80 = 589adb780354b461645b29999cefaf533594ee99)'
+        type: string
+        default: v0.80
+      apply_patch:
+        description: 'Apply tools/dxmt/*.patch (transparent layered windows)'
+        type: boolean
+        default: true
+      rebuild_llvm:
+        description: 'Ignore the cached LLVM build'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: build-dxmt
+  cancel-in-progress: false
+
+env:
+  LLVM_TAG: llvmorg-15.0.7
+  LLVM_COMMIT: 8dfdcc7b7bf66834a761bd8de445840ef68e4d1a
+  WINE_URL: https://github.com/3Shain/wine/releases/download/v8.16-3shain/wine.tar.gz
+  WINE_SHA256: 289c7f19e270a3d3d0a6fdb07691b176c70a0795f6811e5255cba82425de4f10
+  HOMEBREW_NO_AUTO_UPDATE: '1'
+  HOMEBREW_NO_INSTALL_CLEANUP: '1'
+
+jobs:
+  dxmt:
+    runs-on: macos-15
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Record environment
+        run: |
+          mkdir -p "$RUNNER_TEMP/out"
+          { sw_vers; uname -m; xcodebuild -version; ls -d /Applications/Xcode*; cmake --version | head -1; } | tee "$RUNNER_TEMP/out/environment.txt"
+      - name: Fetch DXMT with submodules
+        run: |
+          git clone --recurse-submodules -q https://github.com/3Shain/dxmt.git "$RUNNER_TEMP/dxmt"
+          cd "$RUNNER_TEMP/dxmt"
+          git -c advice.detachedHead=false checkout -q "${{ inputs.dxmt_ref }}"
+          git submodule update --init --recursive -q
+          echo "DXMT_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          git rev-parse HEAD
+      - name: Apply the Gryphfield patch
+        if: inputs.apply_patch
+        run: |
+          cd "$RUNNER_TEMP/dxmt"
+          for p in "$GITHUB_WORKSPACE"/tools/dxmt/*.patch; do
+            git apply --check "$p"
+            git apply "$p"
+            echo "applied $(basename "$p")"
+          done
+          git diff --stat
+      - name: Toolchain - 3Shain Wine 8.16 (pinned hash)
+        run: |
+          mkdir -p "$RUNNER_TEMP/dxmt/toolchains/wine"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/wine.tar.gz" "$WINE_URL"
+          echo "$WINE_SHA256  $RUNNER_TEMP/wine.tar.gz" | shasum -a 256 -c
+          tar -xzf "$RUNNER_TEMP/wine.tar.gz" -C "$RUNNER_TEMP/dxmt/toolchains/wine"
+      - name: Toolchain - LLVM for Darwin x86_64 (cached)
+        id: llvmcache
+        if: ${{ !inputs.rebuild_llvm }}
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ runner.temp }}/dxmt/toolchains/llvm-darwin
+          key: gryphfield-dxmt-llvm-darwin-x86_64-${{ env.LLVM_COMMIT }}
+      - name: Build LLVM (x86_64, no targets, no tools)
+        if: steps.llvmcache.outputs.cache-hit != 'true'
+        run: |
+          brew install ninja cmake >/dev/null 2>&1 || true
+          cd "$RUNNER_TEMP/dxmt"
+          git clone -q --depth 1 --branch "$LLVM_TAG" https://github.com/llvm/llvm-project.git toolchains/llvm-project
+          test "$(git -C toolchains/llvm-project rev-parse HEAD)" = "$LLVM_COMMIT"
+          cmake -B toolchains/llvm-darwin-build -S toolchains/llvm-project/llvm \
+            -DCMAKE_INSTALL_PREFIX="$PWD/toolchains/llvm-darwin" \
+            -DCMAKE_OSX_ARCHITECTURES=x86_64 -DLLVM_HOST_TRIPLE=x86_64-apple-darwin \
+            -DLLVM_ENABLE_ASSERTIONS=On -DLLVM_ENABLE_ZSTD=Off -DCMAKE_BUILD_TYPE=Release \
+            -DLLVM_TARGETS_TO_BUILD="" -DLLVM_BUILD_TOOLS=Off \
+            -DBUG_REPORT_URL="https://github.com/3Shain/dxmt" -DPACKAGE_VENDOR="DXMT" \
+            -DLLVM_VERSION_PRINTER_SHOW_HOST_TARGET_INFO=Off -G Ninja
+          cmake --build toolchains/llvm-darwin-build
+          cmake --install toolchains/llvm-darwin-build
+          rm -rf toolchains/llvm-project toolchains/llvm-darwin-build
+      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        if: steps.llvmcache.outputs.cache-hit != 'true'
+        with:
+          path: ${{ runner.temp }}/dxmt/toolchains/llvm-darwin
+          key: gryphfield-dxmt-llvm-darwin-x86_64-${{ env.LLVM_COMMIT }}
+      - name: Toolchain - mingw-w64, meson, Xcode
+        run: |
+          brew install mingw-w64 ninja >/dev/null 2>&1 || brew install mingw-w64 ninja
+          pip3 install meson==1.10.0 --break-system-packages
+          if [ -d /Applications/Xcode_16.1.app ]; then sudo xcode-select -s /Applications/Xcode_16.1.app; fi
+          xcodebuild -version
+      - name: Build DXMT (x86_64 Windows cross, release)
+        run: |
+          cd "$RUNNER_TEMP/dxmt"
+          meson setup --cross-file build-win64.txt -Denable_nvapi=true -Denable_nvngx=true \
+            -Dnative_llvm_path=toolchains/llvm-darwin -Dwine_install_path=toolchains/wine \
+            build --buildtype release --prefix "$PWD/install" --strip
+          meson compile -C build
+          meson install -C build
+          find install -type f | sort | tee "$RUNNER_TEMP/out/files.txt"
+      - name: Freeze as .tar.xz
+        run: |
+          label="dxmt-${DXMT_COMMIT:0:12}$([ '${{ inputs.apply_patch }}' = true ] && echo -gryphfield)"
+          echo "LABEL=$label" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/pack/$label"
+          cp -R "$RUNNER_TEMP/dxmt/install/." "$RUNNER_TEMP/pack/$label/"
+          # the same layout and exclusions as DXMT's own release tarball; reproducible ordering
+          cd "$RUNNER_TEMP/pack"
+          COPYFILE_DISABLE=1 tar --exclude='*.a' -cf - "$label" | xz -9e -T0 > "$RUNNER_TEMP/out/$label.tar.xz"
+          cd "$RUNNER_TEMP/out"
+          shasum -a 256 "$label.tar.xz" | tee "$label.tar.xz.sha256"
+          ls -la "$label.tar.xz"
+          tar -tJf "$label.tar.xz" | head -40
+          {
+            echo "dxmt_commit=$DXMT_COMMIT"
+            echo "patch_applied=${{ inputs.apply_patch }}"
+            echo "llvm_commit=$LLVM_COMMIT"
+            echo "wine_toolchain_sha256=$WINE_SHA256"
+          } > build-info.txt
+          {
+            echo "### $label"
+            echo '```'; cat "$label.tar.xz.sha256" build-info.txt; echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: dxmt-build
+          path: ${{ runner.temp }}/out
+          retention-days: 14
+          compression-level: 0
