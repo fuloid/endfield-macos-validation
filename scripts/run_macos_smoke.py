@@ -37,12 +37,13 @@ def main():
     report = {'host': platform.platform(), 'architecture': platform.machine(), 'tests': {},
               'scope': 'Wine/Rosetta CPU/exception smoke tests only; no graphics or game.'}
 
-    def execute(name, command, timeout):
+    def execute(name, command, timeout, extra_env=None):
         print(f'Running {name}', flush=True)
         with (out / f'{name}.log').open('w') as log:
             try:
                 result = subprocess.run([str(a) for a in command], stdout=log,
-                                        stderr=subprocess.STDOUT, timeout=timeout, env=env)
+                                        stderr=subprocess.STDOUT, timeout=timeout,
+                                        env=dict(env, **(extra_env or {})))
                 report['tests'][name] = {'exit_code': result.returncode}
                 if result.returncode:
                     raise RuntimeError(f'{name} exited {result.returncode}; see artifact log')
@@ -94,7 +95,31 @@ def main():
         print('\n'.join(line for line in content.splitlines() if ':trace:' not in line), flush=True)
         if 'PASS direct syscall on main and worker threads' not in content:
             raise RuntimeError('Direct syscall probe did not pass')
-        report.update(direct_syscall_passed=True, passed=True)
+        report.update(direct_syscall_passed=True)
+        # 0017 hides builtin version resources only when asked; 0018 execs child processes
+        # through a link named after the exe in $TMPDIR/winetemp-*/.
+        execute('compile-version-probe', ['x86_64-w64-mingw32-gcc', '-O2', '-static', '-municode', '-Wall',
+                                         '-Wextra', '-Werror', ROOT / 'tools/version-probe/version-probe.c',
+                                         '-o', out / 'version-probe.exe', '-lversion'], 120)
+        execute('version-probe', [wine, out / 'version-probe.exe'], 90)
+        execute('version-probe-hidden', [wine, out / 'version-probe.exe'], 90,
+                {'CX_HIDE_BUILTIN_VERSION_RESOURCES': '1'})
+        shown = (out / 'version-probe.log').read_text(errors='replace')
+        hidden = (out / 'version-probe-hidden.log').read_text(errors='replace')
+        print(shown + hidden, flush=True)
+        size = re.search(r'^version-size=(\d+) error=(\d+)', shown, re.M)
+        if not size or int(size.group(1)) == 0:
+            raise RuntimeError('kernel32.dll version resource is not readable by default')
+        if not re.search(r'^version-size=0 error=1814\r?$', hidden, re.M):
+            raise RuntimeError('CX_HIDE_BUILTIN_VERSION_RESOURCES=1 did not hide the builtin version resource')
+        if 'child exit=42' not in shown:
+            raise RuntimeError('version-probe child process did not run')
+        temp = subprocess.run(['getconf', 'DARWIN_USER_TEMP_DIR'], capture_output=True, text=True).stdout.strip()
+        links = sorted(str(p) for p in Path(temp).glob('winetemp-*/version-probe'))
+        print('process links:', links, flush=True)
+        if not links:
+            raise RuntimeError('no winetemp link named after the child process (0018)')
+        report.update(builtin_version_hiding_passed=True, process_name_link=links[0], passed=True)
     finally:
         (out / 'smoke.json').write_text(json.dumps(report, indent=2) + '\n')
         server = prefix / 'bin/wineserver'

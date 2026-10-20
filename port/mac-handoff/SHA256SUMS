@@ -1,4 +1,4 @@
-47d0c3a5ca752ebcb23b9cd8be7ee069cf3f353335aa8e40d66012e3aa2fa3c3  MAC_HANDOFF.md
+f42943e6a15abc033267e403fcf1bbe1224cd128c04a855b9e617364964db8ea  MAC_HANDOFF.md
 eaac705b5f8902870d1ad44a1fd54773263c5e711fca3bd5ab8a25303aae5049  AUDIT.md
 274fdb3e42d2d3ad2d13c4219f8d5f3bbf96266688ceda5b944c31608a709cd6  build-mac.sh
 5e26e8951671f1adca635f8db494f8442d8bb0c3973b52b15451590b92207665  noptest.c
@@ -18,6 +18,9 @@ c53e477deb3a365b574e046d0e183f1ce9b72d216d6ae11b269f7707a8492bda  patches/0013-w
 2ae8a68c67288a5315eab69dfedc5f9c1aaad163db0c4b21f889bfb7d4834a5d  patches/0014-winemac-cache-the-window-under-the-cursor.patch
 10335817ec2e063e6fdc61692093e074ccc13afc69606b7e8b78beacb7ec7638  patches/0015-winemac-validate-app-icon-entries.patch
 6674dcce59a4025af3c4cd38fc5cb30d6274a22da978e433561f7b971d5969f1  patches/0016-ntdll-restore-teb-gsbase-after-sigsys.patch
+ff7aafdb25522d0837ef4b27e06d5eead570a9effca66d71f9d566bac5b7610b  patches/0017-kernelbase-optionally-hide-builtin-version-resources.patch
+46d983e4c94f065ee6cfd28c0ecc99c059751edfc55de221a35aa4cd25e2e5d7  patches/0018-loader-ntdll-name-macos-processes-after-the-program.patch
+e541a3456f8d3da9be6e0be6f171803792ab7fff1887caf6a2adf10fd20a1f20  patches/0019-winemac-rounded-square-dock-icon.patch
 7138cc2a441ca9c1bd507c73095b1753b8312f829c70729a29845b12ad47dd55  patches/0101-ace-core-ntoskrnl-Implement-ACE-CORE-new-imports.patch
 b9f1fa7c6806fe0903ede53e120b8a0fd4334795eea38ad6b6b6ab5efdfbefbc  patches/0103-ace-core-ntoskrnl.exe-Call-DriverInit-with-bits-48-64-of-return-address-set.patch
 f18cb756bae2fe85aa256569d37c35e31394e4d9422cf8b0b7f86ddf59d8a653  patches/0104-ace-core-ntoskrnl.exe-Add-MmCopyMemory-stub.patch

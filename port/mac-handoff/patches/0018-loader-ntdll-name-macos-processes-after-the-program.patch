@@ -1,0 +1,350 @@
+From: Gryphfield
+Subject: [PATCH] loader, ntdll: Name macOS processes after the program they run.
+
+Port of CrossOver 26.3's CW Hacks 22144 and 13438. Every Wine process is the same
+"wine" binary, so the Dock, Activity Monitor and the application menu showed
+"wine"/"Wine" for GRYPHLINK, Endfield and Wine's own programs alike.
+
+- ntdll: when a process is created, exec the loader through a link named after
+  the image (e.g. "Endfield") in $TMPDIR/winetemp-<loader inode>-<size>-<mtime>/,
+  next to an ntdll.so symlink so loader/main.c still finds ntdll. A hard link
+  is tried first (no alias arrow in the Dock), then a symlink. The name is also
+  passed in WINEPRELOADERAPPNAME.
+- The ntdll.so symlink is replaced atomically each time (FineWine ab8b9e9's fix
+  for stale links after the app is moved).
+- loader: overwrite CFBundleName in the Info.plist embedded in the loader with
+  that name (or the name of argv[1] for a process started from Unix), so AppKit
+  titles the application menu with it. wine_info.plist gets a padding comment
+  after the name to make room for 32 characters.
+
+Unlike CrossOver, the link is also used without the preloader even when
+WINEDLLPATH is unset: 11.19's ntdll finds its directory with realpath(), so a
+link elsewhere does not change it. Process creation from Unix (reexec_loader)
+is unchanged.
+---
+diff --git a/dlls/ntdll/unix/loader.c b/dlls/ntdll/unix/loader.c
+index ebfb6af..dcbeff3 100644
+--- a/dlls/ntdll/unix/loader.c
++++ b/dlls/ntdll/unix/loader.c
+@@ -436,13 +436,106 @@ char *get_alternate_wineloader( WORD machine )
+ }
+ 
+ 
+-static void preloader_exec( char **argv )
++#ifdef __APPLE__
++/* Display name for an exe path, as in loader/main.c: the file name without directory or
++ * extension. Returns NULL when there is none. */
++static char *extract_exe_name( const char *exe_path )
++{
++    const char *name = exe_path, *p;
++    size_t len;
++
++    if ((p = strrchr( name, '\\' ))) name = p + 1;
++    if ((p = strrchr( name, '/' ))) name = p + 1;
++    if (strspn( name, "0123456789abcdefABCDEF" ) == 32 && name[32] == '.') name += 33;
++    if ((p = strrchr( name, '.' )) && p != name) len = p - name;
++    else len = strlen( name );
++    if (!len) return NULL;
++    return strndup( name, len );
++}
++
++/* $TMPDIR/winetemp-<loader inode>-<size>-<mtime>/, with an ntdll.so link next to the loader
++ * links, so that loader/main.c finds ntdll.so from a link's directory. A different directory
++ * is used when the loader is updated. */
++static char *create_tempdir( const char *wineloader_path )
++{
++    char *str, *tmp, *ntdll, *tempdir = malloc( MAX_PATH );
++    struct stat st;
++    size_t n;
++
++    if (!tempdir || !confstr( _CS_DARWIN_USER_TEMP_DIR, tempdir, MAX_PATH )) goto fail;
++    if (stat( wineloader_path, &st )) goto fail;
++    if (asprintf( &str, "/winetemp-%llu-%llu-%lu-%lu/", (unsigned long long)st.st_ino,
++                  (unsigned long long)st.st_size, (unsigned long)st.st_mtimespec.tv_sec,
++                  (unsigned long)st.st_mtimespec.tv_nsec ) == -1)
++        goto fail;
++    n = strlcat( tempdir, str, MAX_PATH );
++    free( str );
++    if (n >= MAX_PATH) goto fail;
++    mkdir( tempdir, 0700 );  /* may already exist */
++
++    /* The directory is keyed on the loader's inode, which survives moving the app, so an
++     * existing link may point at the old location: replace it atomically every time. */
++    ntdll = build_path( ntdll_dir, "ntdll.so" );
++    if (asprintf( &str, "%sntdll.so", tempdir ) != -1)
++    {
++        if (asprintf( &tmp, "%sntdll.so.%d", tempdir, (int)getpid() ) != -1)
++        {
++            unlink( tmp );
++            if (!symlink( ntdll, tmp ) && rename( tmp, str )) unlink( tmp );
++            free( tmp );
++        }
++        free( str );
++    }
++    free( ntdll );
++    return tempdir;
++
++fail:
++    free( tempdir );
++    return NULL;
++}
++
++static char *create_loader_link( const char *wineloader_path, const char *exe_name )
++{
++    struct stat st;
++    char *linkpath = create_tempdir( wineloader_path );
++
++    if (!linkpath) return NULL;
++    if (strlcat( linkpath, exe_name, MAX_PATH ) >= MAX_PATH) goto fail;
++    /* a link in this directory already points at this loader */
++    if (!stat( linkpath, &st )) return linkpath;
++    /* a hard link avoids the alias arrow the Dock puts on a symlinked icon */
++    if (!link( wineloader_path, linkpath ) || !symlink( wineloader_path, linkpath )) return linkpath;
++fail:
++    free( linkpath );
++    return NULL;
++}
++
++/* Exec the loader through a link named after the exe, so that the process shows the exe's
++ * name in the Dock and Activity Monitor; loader/main.c also uses it for the application menu. */
++static void replace_wineloader_path_with_link( char **wineloader_path, const char *image_path )
++{
++    char *app_name, *link_path;
++
++    if (!image_path || !(app_name = extract_exe_name( image_path ))) return;
++    if ((link_path = create_loader_link( *wineloader_path, app_name )))
++    {
++        free( *wineloader_path );
++        *wineloader_path = link_path;
++    }
++    setenv( "WINEPRELOADERAPPNAME", app_name, 1 );
++    free( app_name );
++}
++#endif
++
++static void preloader_exec( char **argv, const char *image_path )
+ {
+ #ifdef HAVE_WINE_PRELOADER
+     asprintf( &argv[0], "%s-preloader", argv[1] );
+ #ifdef __APPLE__
+     {
+         posix_spawnattr_t attr;
++
++        replace_wineloader_path_with_link( &argv[0], image_path );
+         posix_spawnattr_init( &attr );
+         posix_spawnattr_setflags( &attr, POSIX_SPAWN_SETEXEC | _POSIX_SPAWN_DISABLE_ASLR );
+         posix_spawn( NULL, argv[0], NULL, &attr, argv, *_NSGetEnviron() );
+@@ -451,21 +544,24 @@ static void preloader_exec( char **argv )
+ #endif
+     execv( argv[0], argv );
+     free( argv[0] );
++#endif
++#if defined(__APPLE__) && !defined(HAVE_WINE_PRELOADER)
++    replace_wineloader_path_with_link( &argv[1], image_path );
+ #endif
+     execv( argv[1], argv + 1 );
+ }
+ 
+ /* exec the appropriate wine loader for the specified machine */
+-static NTSTATUS loader_exec( char **argv, WORD machine )
++static NTSTATUS loader_exec( char **argv, WORD machine, const char *image_path )
+ {
+     static char noexec[] = "WINELOADERNOEXEC=1";
+ 
+     putenv( noexec );
+ 
+-    if (((argv[1] = get_alternate_wineloader( machine )))) preloader_exec( argv );
++    if (((argv[1] = get_alternate_wineloader( machine )))) preloader_exec( argv, image_path );
+ 
+     argv[1] = strdup( wineloader );
+-    preloader_exec( argv );
++    preloader_exec( argv, image_path );
+     return STATUS_INVALID_IMAGE_FORMAT;
+ }
+ 
+@@ -475,7 +571,8 @@ static NTSTATUS loader_exec( char **argv, WORD machine )
+  *
+  * argv[0] and argv[1] must be reserved for the preloader and loader respectively.
+  */
+-NTSTATUS exec_wineloader( char **argv, int socketfd, const struct pe_image_info *pe_info )
++NTSTATUS exec_wineloader( char **argv, int socketfd, const struct pe_image_info *pe_info,
++                          const char *image_path )
+ {
+     WORD machine = pe_info->machine;
+     ULONGLONG res_start = pe_info->base;
+@@ -495,7 +592,7 @@ NTSTATUS exec_wineloader( char **argv, int socketfd, const struct pe_image_info
+     putenv( preloader_reserve );
+     putenv( socket_env );
+ 
+-    return loader_exec( argv, machine );
++    return loader_exec( argv, machine, image_path );
+ }
+ 
+ 
+@@ -2030,7 +2127,7 @@ static void reexec_loader( int argc, char *argv[], char *extra_arg )
+     /* default to 32-bit loader to support 32-bit prefixes */
+     if (machine == IMAGE_FILE_MACHINE_AMD64) machine = IMAGE_FILE_MACHINE_I386;
+ 
+-    loader_exec( new_argv, machine );
++    loader_exec( new_argv, machine, NULL );
+     fatal_error( "could not exec the wine loader\n" );
+ }
+ 
+diff --git a/dlls/ntdll/unix/process.c b/dlls/ntdll/unix/process.c
+index 9dad6c3..1796281 100644
+--- a/dlls/ntdll/unix/process.c
++++ b/dlls/ntdll/unix/process.c
+@@ -405,7 +405,8 @@ static NTSTATUS spawn_process( const RTL_USER_PROCESS_PARAMETERS *params, int so
+     NTSTATUS status = STATUS_SUCCESS;
+     int stdin_fd = -1, stdout_fd = -1;
+     pid_t pid;
+-    char **argv;
++    char **argv, *image_path;
++    DWORD len;
+ 
+     if (wine_server_handle_to_fd( params->hStdInput, FILE_READ_DATA, &stdin_fd, NULL ) &&
+         isatty(0) && is_unix_console_handle( params->hStdInput ))
+@@ -441,7 +442,12 @@ static NTSTATUS spawn_process( const RTL_USER_PROCESS_PARAMETERS *params, int so
+             }
+             argv = build_argv( &params->CommandLine, 2 );
+ 
+-            exec_wineloader( argv, socketfd, pe_info );
++            /* the real image name, to name the process after it on macOS */
++            len = params->ImagePathName.Length / sizeof(WCHAR);
++            if ((image_path = malloc( len * 3 + 1 )))
++                image_path[ntdll_wcstoumbs( params->ImagePathName.Buffer, len, image_path, len * 3, FALSE )] = 0;
++
++            exec_wineloader( argv, socketfd, pe_info, image_path );
+             _exit(1);
+         }
+ 
+diff --git a/dlls/ntdll/unix/unix_private.h b/dlls/ntdll/unix/unix_private.h
+index 9b6401e..71a6356 100644
+--- a/dlls/ntdll/unix/unix_private.h
++++ b/dlls/ntdll/unix/unix_private.h
+@@ -240,7 +240,8 @@ extern void *create_startup_info( const UNICODE_STRING *nt_image, ULONG process_
+                                   const RTL_USER_PROCESS_PARAMETERS *params,
+                                   const struct pe_image_info *pe_info, DWORD *info_size );
+ extern char *get_alternate_wineloader( WORD machine );
+-extern NTSTATUS exec_wineloader( char **argv, int socketfd, const struct pe_image_info *pe_info );
++extern NTSTATUS exec_wineloader( char **argv, int socketfd, const struct pe_image_info *pe_info,
++                                 const char *image_path );
+ extern NTSTATUS load_builtin( struct pe_mapping_info *pe_mapping, USHORT machine,
+                               SECTION_IMAGE_INFORMATION *info, void **module, SIZE_T *size,
+                               ULONG_PTR limit_low, ULONG_PTR limit_high, off_t offset );
+diff --git a/loader/main.c b/loader/main.c
+index 71ba308..2b2d9a6 100644
+--- a/loader/main.c
++++ b/loader/main.c
+@@ -36,6 +36,9 @@
+ #endif
+ #ifdef __APPLE__
+ # include <mach-o/dyld.h>
++# include <mach-o/getsect.h>
++# include <mach/mach.h>
++# include <crt_externs.h>
+ #endif
+ 
+ #include "main.h"
+@@ -164,6 +167,78 @@ static void *try_dlopen( const char *argv0 )
+ }
+ 
+ 
++#ifdef __APPLE__
++/**********************************************************************
++ *           override_bundle_name
++ *
++ * AppKit titles the application menu with the CFBundleName of the Info.plist embedded in
++ * this binary. Overwrite it in place with the name of the program being run: the one
++ * ntdll passes in WINEPRELOADERAPPNAME, or else the name of argv[1]. The plist keeps a
++ * padding comment after the name to make room. Port of CrossOver's CW Hack 13438.
++ */
++static void override_bundle_name( int argc, char *argv[] )
++{
++    static const char prefix[] = "<key>CFBundleName</key>\n    <string>";
++    static const char suffix[] = "</string>";
++    static const char padding[] = "<!-- bundle name padding -->";
++    const char *new_name = getenv( "WINEPRELOADERAPPNAME" ), *p;
++    char *info_plist, *name, *app_name = NULL;
++    unsigned long remaining;
++    size_t name_len, max_len, new_len;
++    vm_address_t start, end;
++
++    if (new_name) app_name = strdup( new_name );
++    unsetenv( "WINEPRELOADERAPPNAME" );
++    if (!app_name)
++    {
++        if (argc < 2) return;
++        new_name = argv[1];
++        if ((p = strrchr( new_name, '\\' ))) new_name = p + 1;
++        if ((p = strrchr( new_name, '/' ))) new_name = p + 1;
++        if (strspn( new_name, "0123456789abcdefABCDEF" ) == 32 && new_name[32] == '.') new_name += 33;
++        if ((p = strrchr( new_name, '.' )) && p != new_name) new_len = p - new_name;
++        else new_len = strlen( new_name );
++    }
++    else
++    {
++        new_name = app_name;
++        new_len = strlen( new_name );
++    }
++    if (!new_len) goto done;
++
++    info_plist = (char *)getsectiondata( (const struct mach_header_64 *)_NSGetMachExecuteHeader(),
++                                         "__TEXT", "__info_plist", &remaining );
++    if (!info_plist || !remaining) goto done;
++    if (!(name = strnstr( info_plist, prefix, remaining ))) goto done;
++    name += sizeof(prefix) - 1;
++    remaining -= name - info_plist;
++    if (!(p = strnstr( name, suffix, remaining ))) goto done;
++    name_len = p - name;
++    remaining -= name_len + sizeof(suffix) - 1;
++
++    max_len = name_len;
++    if (sizeof(padding) - 1 <= remaining &&
++        !memcmp( name + name_len + sizeof(suffix) - 1, padding, sizeof(padding) - 1 ))
++        max_len += sizeof(padding) - 1;
++
++    start = (vm_address_t)name & ~(vm_address_t)(getpagesize() - 1);
++    end = ((vm_address_t)(name + max_len + sizeof(suffix) - 1) + getpagesize() - 1) &
++          ~(vm_address_t)(getpagesize() - 1);
++    if (vm_protect( mach_task_self(), start, end - start, 0,
++                    VM_PROT_READ | VM_PROT_WRITE | VM_PROT_EXECUTE | VM_PROT_COPY ) == KERN_SUCCESS)
++    {
++        size_t len = new_len < max_len ? new_len : max_len;
++
++        memcpy( name, new_name, len );
++        memcpy( name + len, suffix, sizeof(suffix) - 1 );
++        memset( name + len + sizeof(suffix) - 1, ' ', max_len - len );
++        vm_protect( mach_task_self(), start, end - start, 0, VM_PROT_READ | VM_PROT_EXECUTE );
++    }
++done:
++    free( app_name );
++}
++#endif
++
+ /**********************************************************************
+  *           main
+  */
+@@ -172,6 +247,9 @@ int main( int argc, char *argv[] )
+     void *handle;
+ 
+     init_reserved_areas();
++#ifdef __APPLE__
++    override_bundle_name( argc, argv );
++#endif
+ 
+     if ((handle = try_dlopen( get_self_exe() )) ||
+         (handle = try_dlopen( argv[0] )))
+diff --git a/loader/wine_info.plist.in b/loader/wine_info.plist.in
+index 6495b8f..2eddbed 100644
+--- a/loader/wine_info.plist.in
++++ b/loader/wine_info.plist.in
+@@ -13,7 +13,7 @@
+     <key>CFBundleInfoDictionaryVersion</key>
+     <string>6.0</string>
+     <key>CFBundleName</key>
+-    <string>Wine</string>
++    <string>Wine</string><!-- bundle name padding -->
+     <key>CFBundlePackageType</key>
+     <string>APPL</string>
+     <key>CFBundleShortVersionString</key>

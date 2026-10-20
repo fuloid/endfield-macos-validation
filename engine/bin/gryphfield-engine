@@ -155,6 +155,12 @@ use_wine() {   # mode
     export DYLD_FALLBACK_LIBRARY_PATH="$mvk:$ENGINE/wine/lib/external:/usr/lib"
     export WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d'
     if [ "$(cfg rosetta_avx true)" != false ]; then export ROSETTA_ADVERTISE_AVX=1; else unset ROSETTA_ADVERTISE_AVX; fi
+    # Wine's builtin DLLs report no version resource (Wine patch 0017, CrossOver's hack 25427).
+    if [ "$(cfg hide_wine_versions false)" = true ]; then
+        export CX_HIDE_BUILTIN_VERSION_RESOURCES=1
+    else
+        unset CX_HIDE_BUILTIN_VERSION_RESOURCES
+    fi
     if [ "$(cfg debug_logging false)" = true ]; then
         export WINEDEBUG='+seh,+loaddll,+ntoskrnl,+process'
     else
@@ -332,7 +338,7 @@ cmd_run() {   # gryphlink|direct [--graphics MODE] [-- game args]
     {
         echo "# Gryphfield $kind launch, $(date)"
         echo "# engine: $(engine_version_json)"
-        echo "# graphics: $MODE (tree $TREE), WINEDEBUG=$WINEDEBUG, ROSETTA_ADVERTISE_AVX=${ROSETTA_ADVERTISE_AVX:-0}, WINE_D3D_CONFIG=${WINE_D3D_CONFIG:-}, diagnostics:${DIAG:- none}"
+        echo "# graphics: $MODE (tree $TREE), WINEDEBUG=$WINEDEBUG, ROSETTA_ADVERTISE_AVX=${ROSETTA_ADVERTISE_AVX:-0}, CX_HIDE_BUILTIN_VERSION_RESOURCES=${CX_HIDE_BUILTIN_VERSION_RESOURCES:-0}, WINE_D3D_CONFIG=${WINE_D3D_CONFIG:-}, diagnostics:${DIAG:- none}"
         echo "# GRYPHLINK $version; game args: ${GAME_ARGS[*]} ${EXTRA[*]}"
     } > "$WLOG"
     printf '%s %s\n' "$kind" "$MODE" > "$SUPPORT/last-run"

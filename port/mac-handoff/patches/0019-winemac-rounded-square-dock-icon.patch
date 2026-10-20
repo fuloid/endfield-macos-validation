@@ -1,0 +1,300 @@
+From: Gryphfield
+Subject: [PATCH] winemac.drv: Put the Dock icon on a macOS-style rounded square.
+
+Port of CrossOver 26.3's CW Hack 25964. Windows icons are usually square or
+free-form, and look out of place in the Dock next to macOS app icons. The
+largest of the program's icons is now drawn into a 512x512 image on Apple's
+icon grid (an 824/1024 rounded square with a soft shadow). An icon whose edges
+are partly filled is inset so it does not touch the rounded corners; one that
+fills its edges, or has nothing on them, is masked whole.
+
+CrossOver loads the rounded-square mask from a PNG in CrossOver.app; here it
+is drawn with NSBezierPath, so nothing outside Wine is needed. The edge scan
+also uses one byte per pixel instead of eight. If masking fails, the previous
+behaviour (all icon sizes as representations) is kept.
+---
+diff --git a/dlls/winemac.drv/Makefile.in b/dlls/winemac.drv/Makefile.in
+index 1eb2b9c..e720194 100644
+--- a/dlls/winemac.drv/Makefile.in
++++ b/dlls/winemac.drv/Makefile.in
+@@ -22,6 +22,7 @@ SOURCES = \
+ 	cocoa_cursorclipping.m \
+ 	cocoa_display.m \
+ 	cocoa_event.m \
++	cocoa_icon_utils.m \
+ 	cocoa_main.m \
+ 	cocoa_opengl.m \
+ 	cocoa_status_item.m \
+diff --git a/dlls/winemac.drv/cocoa_app.m b/dlls/winemac.drv/cocoa_app.m
+index 3961732..91cf542 100644
+--- a/dlls/winemac.drv/cocoa_app.m
++++ b/dlls/winemac.drv/cocoa_app.m
+@@ -24,6 +24,7 @@
+ #import "cocoa_app.h"
+ #import "cocoa_cursorclipping.h"
+ #import "cocoa_event.h"
++#import "cocoa_icon_utils.h"
+ #import "cocoa_window.h"
+ 
+ #pragma GCC diagnostic ignored "-Wdeclaration-after-statement"
+@@ -1057,9 +1058,9 @@ - (void) setCursorWithFrames:(NSArray*)frames
+ 
+     - (void) setApplicationIconFromCGImageArray:(NSArray*)images
+     {
+-        NSImage* nsimage = nil;
++        NSImage* nsimage = [WineIconUtils maskedAppIconFromCGImages:images];
+ 
+-        if ([images count])
++        if (!nsimage && [images count])
+         {
+             NSSize bestSize = NSZeroSize;
+             id image;
+diff --git a/dlls/winemac.drv/cocoa_icon_utils.h b/dlls/winemac.drv/cocoa_icon_utils.h
+new file mode 100644
+index 0000000..b9a29d0
+--- /dev/null
++++ b/dlls/winemac.drv/cocoa_icon_utils.h
+@@ -0,0 +1,33 @@
++/*
++ * MACDRV Cocoa icon utilities
++ *
++ * Copyright 2025 Tim Clem for CodeWeavers Inc.
++ *
++ * This library is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU Lesser General Public
++ * License as published by the Free Software Foundation; either
++ * version 2.1 of the License, or (at your option) any later version.
++ *
++ * This library is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * Lesser General Public License for more details.
++ *
++ * You should have received a copy of the GNU Lesser General Public
++ * License along with this library; if not, write to the Free Software
++ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
++ */
++
++#import <AppKit/AppKit.h>
++
++NS_ASSUME_NONNULL_BEGIN
++
++@interface WineIconUtils : NSObject
++
++/* The largest of the given CGImages, placed on a macOS-style rounded square.
++   Returns nil on error. The result is autoreleased. */
+++ (nullable NSImage *) maskedAppIconFromCGImages:(NSArray *)images;
++
++@end
++
++NS_ASSUME_NONNULL_END
+diff --git a/dlls/winemac.drv/cocoa_icon_utils.m b/dlls/winemac.drv/cocoa_icon_utils.m
+new file mode 100644
+index 0000000..8633c29
+--- /dev/null
++++ b/dlls/winemac.drv/cocoa_icon_utils.m
+@@ -0,0 +1,204 @@
++/*
++ * MACDRV Cocoa icon utilities
++ *
++ * Copyright 2025 Tim Clem for CodeWeavers Inc.
++ *
++ * From CrossOver 26.3 (CW Hack 25964). Changed for Gryphfield in 2026: the
++ * rounded-square mask is drawn instead of loaded from CrossOver's app bundle,
++ * and the edge scan uses one byte per pixel.
++ *
++ * This library is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU Lesser General Public
++ * License as published by the Free Software Foundation; either
++ * version 2.1 of the License, or (at your option) any later version.
++ *
++ * This library is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * Lesser General Public License for more details.
++ *
++ * You should have received a copy of the GNU Lesser General Public
++ * License along with this library; if not, write to the Free Software
++ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
++ */
++
++#include "config.h"
++#import "cocoa_icon_utils.h"
++
++#pragma GCC diagnostic ignored "-Wdeclaration-after-statement"
++
++
++/* Geometry of Apple's app icon grid at 1024x1024: an 824x824 rounded square at
++   (100, 100). */
++static const NSRect unscaledContentRect = {{100, 100}, {824, 824}};
++static const CGFloat unscaledCornerRadius = 185.4;
++
++
++@implementation WineIconUtils
++
+++ (double) percentOfNonTransparentPixelsAlongEdgeOfImage:(NSImage *)image
++{
++    static const int edgeSize = 50;  /* @ 1024x1024 */
++
++    NSRect fullRect = NSMakeRect(0, 0, 1024, 1024);
++    size_t width = fullRect.size.width, height = fullRect.size.height;
++    uint8_t *data = calloc(width * height, sizeof(uint8_t));
++    CGContextRef ctx;
++
++    if (!data)
++        return 0;
++
++    ctx = CGBitmapContextCreate(data, width, height, 8, width, NULL, (CGBitmapInfo)kCGImageAlphaOnly);
++    if (!ctx)
++    {
++        free(data);
++        return 0;
++    }
++
++    [NSGraphicsContext saveGraphicsState];
++    NSGraphicsContext.currentContext = [NSGraphicsContext graphicsContextWithCGContext:ctx flipped:NO];
++
++    /* Mask the image to a frame around the edges. */
++    [NSColor.whiteColor set];
++    NSFrameRectWithWidth(fullRect, edgeSize);
++
++    [image drawInRect:fullRect
++             fromRect:NSZeroRect
++            operation:NSCompositingOperationDestinationIn
++             fraction:1.0
++       respectFlipped:YES
++                hints:nil];
++
++    [NSGraphicsContext restoreGraphicsState];
++
++    size_t nonTransparentPixels = 0;
++    for (size_t i = 0; i < width * height; i++)
++        if (data[i]) nonTransparentPixels++;
++
++    size_t maxNonTransparentPixels = (edgeSize * width * 2) + (edgeSize * height * 2) - (edgeSize * edgeSize * 4);
++
++    CGContextRelease(ctx);
++    free(data);
++
++    return nonTransparentPixels / (double)maxNonTransparentPixels;
++}
++
++/* An opaque rounded square on a transparent 1024x1024 canvas. CrossOver loads
++   this from a PNG in its app bundle; here it is drawn. */
+++ (NSImage *) roundrectMaskImage
++{
++    static NSImage *image = nil;
++    static dispatch_once_t onceToken;
++
++    dispatch_once(&onceToken, ^{
++        image = [[NSImage imageWithSize:NSMakeSize(1024, 1024) flipped:NO drawingHandler:^BOOL(NSRect rect) {
++            [NSColor.whiteColor set];
++            [[NSBezierPath bezierPathWithRoundedRect:unscaledContentRect
++                                             xRadius:unscaledCornerRadius
++                                             yRadius:unscaledCornerRadius] fill];
++            return YES;
++        }] retain];
++    });
++
++    return image;
++}
++
+++ (NSImage *) maskIconToRoundRect:(NSImage *)icon destinationDimension:(NSUInteger)destDim
++{
++    /* If the edges of the icon have greater than the minimum percent
++       filled and less than the maximum, the icon will be resized to
++       fall in the center of the mask by insetting the destination
++       rect by unscaledResizeInset. Otherwise we apply the mask to
++       the whole icon without resizing it first. */
++    static const double edgeContentPctNoResizeMin = 0.05;
++    static const double edgeContentPctNoResizeMax = 0.9;
++    static const int unscaledResizeInset = 80;  /* @ 1024x1024; scaled later */
++
++    /* Settings for the shadow drawn under the roundrect. These are at
++       1024x1024; they are scaled appropriately later. */
++    static const CGFloat unscaledShadowHeight = 5;
++    static const CGFloat unscaledShadowBlurRadius = 25;
++
++    NSImage *maskImg = [self roundrectMaskImage];
++    if (!maskImg)
++        return nil;
++
++    NSRect fullDestRect = NSMakeRect(0, 0, destDim, destDim);
++
++    NSRect iconDestinationRect = unscaledContentRect;
++    double edgeContentPct = [self percentOfNonTransparentPixelsAlongEdgeOfImage:icon];
++    if (edgeContentPct > edgeContentPctNoResizeMin && edgeContentPct < edgeContentPctNoResizeMax)
++        iconDestinationRect = NSInsetRect(iconDestinationRect, unscaledResizeInset, unscaledResizeInset);
++
++    /* Scale our destination rect to the target size. */
++    CGFloat scaleFactor = destDim / 1024.0;
++    iconDestinationRect.origin.x *= scaleFactor;
++    iconDestinationRect.origin.y *= scaleFactor;
++    iconDestinationRect.size.width *= scaleFactor;
++    iconDestinationRect.size.height *= scaleFactor;
++
++    /* Mask the icon to the roundrect. */
++    NSImage *masked = [[NSImage alloc] initWithSize:fullDestRect.size];
++    [masked lockFocusFlipped:NO];
++    [maskImg drawInRect:fullDestRect];
++
++    [icon drawInRect:iconDestinationRect
++            fromRect:NSZeroRect
++           operation:NSCompositingOperationSourceIn
++            fraction:1.0
++      respectFlipped:YES
++               hints:@{ NSImageHintInterpolation: @(NSImageInterpolationHigh) }];
++    [masked unlockFocus];
++
++    /* Now draw the roundrect with a shadow, and lay the masked icon on top. */
++    NSImage *composited = [[NSImage alloc] initWithSize:fullDestRect.size];
++    [composited lockFocusFlipped:NO];
++
++    NSShadow *maskShadow = [[NSShadow alloc] init];
++    maskShadow.shadowOffset = NSMakeSize(0, -unscaledShadowHeight * scaleFactor);
++    maskShadow.shadowBlurRadius = unscaledShadowBlurRadius * scaleFactor;
++
++    [NSGraphicsContext saveGraphicsState];
++    [maskShadow set];
++    [maskImg drawInRect:fullDestRect];
++    [NSGraphicsContext restoreGraphicsState];
++    [maskShadow release];
++
++    [masked drawInRect:fullDestRect
++              fromRect:NSZeroRect
++             operation:NSCompositingOperationSourceOver
++              fraction:1.0
++        respectFlipped:YES
++                 hints:nil];
++
++    [composited unlockFocus];
++
++    [masked release];
++
++    return composited;
++}
++
+++ (NSImage *) maskedAppIconFromCGImages:(NSArray *)images
++{
++    /* The dimensions of image we will generate for an app icon. The largest
++       available Windows icon will be composited into an image of this size. */
++    static const NSUInteger appIconSize = 512;
++
++    if (images.count == 0)
++        return nil;
++
++    NSArray *sortedImages = [images sortedArrayUsingComparator:^(id a, id b) {
++        size_t ha = CGImageGetHeight((CGImageRef)a), hb = CGImageGetHeight((CGImageRef)b);
++        if (ha == hb) return NSOrderedSame;
++        return ha > hb ? NSOrderedDescending : NSOrderedAscending;
++    }];
++
++    NSImage *biggestImage = [[NSImage alloc] initWithCGImage:(CGImageRef)sortedImages.lastObject
++                                                        size:NSZeroSize];
++
++    NSImage *res = [self maskIconToRoundRect:biggestImage destinationDimension:appIconSize];
++    [biggestImage release];
++    return [res autorelease];
++}
++
++@end

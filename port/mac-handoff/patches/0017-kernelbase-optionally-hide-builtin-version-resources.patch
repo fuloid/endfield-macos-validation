@@ -1,0 +1,74 @@
+From: Gryphfield
+Subject: [PATCH] kernelbase: Optionally hide the version resource of builtin DLLs.
+
+Port of CrossOver 26.3's CW Hack 25427. With CX_HIDE_BUILTIN_VERSION_RESOURCES=1,
+GetFileVersionInfoSizeExW() fails with ERROR_RESOURCE_NAME_NOT_FOUND for a DLL
+carrying the "Wine builtin DLL" signature, so programs that read Wine's version
+strings from system DLLs do not find them. Native DLLs are unaffected.
+
+CrossOver only guards GetFileVersionInfoSizeExW(); this also guards
+GetFileVersionInfoExW() so a caller that skips the size query sees the same
+result. The variable name is kept from CrossOver. Off unless set.
+---
+diff --git a/dlls/kernelbase/version.c b/dlls/kernelbase/version.c
+index 809577a..923d4ad 100644
+--- a/dlls/kernelbase/version.c
++++ b/dlls/kernelbase/version.c
+@@ -747,6 +747,31 @@ DWORD WINAPI GetFileVersionInfoSizeA( LPCSTR filename, LPDWORD handle )
+     return GetFileVersionInfoSizeExA( FILE_VER_GET_LOCALISED, filename, handle );
+ }
+ 
++/***********************************************************************
++ *           hide_builtin_version
++ *
++ * With CX_HIDE_BUILTIN_VERSION_RESOURCES=1, Wine's builtin DLLs report no version
++ * resource, so programs that look for Wine's version strings do not find them.
++ */
++static BOOL hide_builtin_version( HMODULE module )
++{
++    static const char builtin_signature[] = "Wine builtin DLL";
++    HMODULE base = (HMODULE)((ULONG_PTR)module & ~(ULONG_PTR)3);
++    const char *signature = (const char *)((IMAGE_DOS_HEADER *)base + 1);
++    IMAGE_NT_HEADERS *nt;
++    WCHAR value[2];
++
++    if (GetEnvironmentVariableW( L"CX_HIDE_BUILTIN_VERSION_RESOURCES", value, ARRAY_SIZE(value) ) != 1 ||
++        value[0] != '1')
++        return FALSE;
++    if (!(nt = RtlImageNtHeader( base ))) return FALSE;
++    if ((const char *)nt - signature < sizeof(builtin_signature) ||
++        memcmp( signature, builtin_signature, sizeof(builtin_signature) ))
++        return FALSE;
++    WARN( "not exposing the version resource of a builtin DLL\n" );
++    return TRUE;
++}
++
+ /******************************************************************************
+  *           GetFileVersionInfoSizeExW       (kernelbase.@)
+  */
+@@ -775,6 +800,12 @@ DWORD WINAPI GetFileVersionInfoSizeExW( DWORD flags, LPCWSTR filename, LPDWORD r
+     if ((hModule = LoadLibraryExW( filename, 0, LOAD_LIBRARY_AS_IMAGE_RESOURCE )))
+     {
+         HRSRC hRsrc = NULL;
++        if (hide_builtin_version( hModule ))
++        {
++            FreeLibrary( hModule );
++            SetLastError( ERROR_RESOURCE_NAME_NOT_FOUND );
++            return 0;
++        }
+         if (!(flags & FILE_VER_GET_LOCALISED))
+         {
+             LANGID english = MAKELANGID( LANG_ENGLISH, SUBLANG_DEFAULT );
+@@ -880,6 +911,12 @@ BOOL WINAPI GetFileVersionInfoExW( DWORD flags, LPCWSTR filename, DWORD ignored,
+     if ((hModule = LoadLibraryExW( filename, 0, LOAD_LIBRARY_AS_IMAGE_RESOURCE )))
+     {
+         HRSRC hRsrc = NULL;
++        if (hide_builtin_version( hModule ))
++        {
++            FreeLibrary( hModule );
++            SetLastError( ERROR_RESOURCE_NAME_NOT_FOUND );
++            return FALSE;
++        }
+         if (!(flags & FILE_VER_GET_LOCALISED))
+         {
+             LANGID english = MAKELANGID( LANG_ENGLISH, SUBLANG_DEFAULT );
