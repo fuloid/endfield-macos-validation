@@ -311,6 +311,7 @@
               <text>Logging and CPU</text>
               <switch checked="{debugLogging}" on-toggle="toggle_debug">Detailed Wine logging (large logs)</switch>
               <switch checked="{rosettaAvx}" on-toggle="toggle_avx">Advertise AVX to Rosetta</switch>
+              <switch checked="{hideWineVersions}" on-toggle="toggle_hide_wine_versions">Hide Wine version info from programs (test; may confuse installers)</switch>
             </column>
             <column gap="8">
               <text>Graphics diagnostics</text>

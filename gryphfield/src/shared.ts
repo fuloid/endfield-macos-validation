@@ -56,6 +56,7 @@ export type SettingsWrite = {
   readonly mvkArgumentBuffers: boolean;
   readonly wined3dCsmt: boolean;
   readonly metalValidation: boolean;
+  readonly hideWineVersions: boolean;
 };
 export type LocationWrite = {
   readonly prefixPath: Uint8Array;
@@ -70,4 +71,5 @@ export type SettingsResult = {
   readonly mvkArgumentBuffers: boolean;
   readonly wined3dCsmt: boolean;
   readonly metalValidation: boolean;
+  readonly hideWineVersions: boolean;
 };

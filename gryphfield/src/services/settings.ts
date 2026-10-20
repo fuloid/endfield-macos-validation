@@ -26,6 +26,7 @@ function result(config: Record<string, unknown>): SettingsResult {
     mvkArgumentBuffers: config.mvk_argument_buffers !== false,
     wined3dCsmt: config.wined3d_csmt !== false,
     metalValidation: config.metal_validation === true,
+    hideWineVersions: config.hide_wine_versions === true,
   };
 }
 export function load(request: SettingsRequest): SettingsResult {
@@ -62,6 +63,7 @@ export function save(request: SettingsWrite): SettingsResult {
   config.mvk_argument_buffers = request.mvkArgumentBuffers;
   config.wined3d_csmt = request.wined3dCsmt;
   config.metal_validation = request.metalValidation;
+  config.hide_wine_versions = request.hideWineVersions;
   write(path, config);
   return result(config);
 }

@@ -28,7 +28,7 @@ The actual app invokes `/Applications/Gryphfield.app/Contents/Resources/engine/b
 
 - Add `uninstall-game --yes` for the game's folder only; the current draft lists no uninstall command. UI confirms twice before invoking it.
 - Add `reset-prefix --yes --keep-game` to preserve the game folder. The UI offers this choice and defaults to preserving files; plain `reset-prefix --yes` removes them.
-- Confirm `config.json` keys: `graphics`, `extra_args` (currently a text string), `debug_logging`, `rosetta_avx`, and the graphics diagnostics `moltenvk_stock`, `mvk_argument_buffers`, `wined3d_csmt`, `metal_validation`. The engine should parse extra args safely, without shell evaluation. The UI writes these keys and preserves other existing keys.
+- Confirm `config.json` keys: `graphics`, `extra_args` (currently a text string), `debug_logging`, `rosetta_avx`, and the graphics diagnostics `moltenvk_stock`, `mvk_argument_buffers`, `wined3d_csmt`, `metal_validation`, and `hide_wine_versions` (Wine's builtin DLLs report no version resource). The engine should parse extra args safely, without shell evaluation. The UI writes these keys and preserves other existing keys.
 - Specify whether `game_exited` always includes `log`, and whether `done.ok` becomes false for a game crash. The UI treats `failed`, a positive game exit code, or a failed `done` as errors.
 - Keep each JSONL event below Native SDK's 4 KiB process-line limit. Put large diagnostics in files and send paths in events.
 
