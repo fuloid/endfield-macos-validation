@@ -312,6 +312,14 @@
               <switch checked="{debugLogging}" on-toggle="toggle_debug">Detailed Wine logging (large logs)</switch>
               <switch checked="{rosettaAvx}" on-toggle="toggle_avx">Advertise AVX to Rosetta</switch>
             </column>
+            <column gap="8">
+              <text>Graphics diagnostics</text>
+              <switch checked="{stockMoltenvk}" on-toggle="toggle_stock_mvk">Use stock MoltenVK 1.4.2 instead of the patched build</switch>
+              <switch checked="{mvkArgumentBuffers}" on-toggle="toggle_mvk_argbuf">MoltenVK Metal argument buffers</switch>
+              <switch checked="{wined3dCsmt}" on-toggle="toggle_csmt">WineD3D command stream thread (CSMT)</switch>
+              <switch checked="{metalValidation}" on-toggle="toggle_metal_validation">Metal API validation (slow; findings go to the Wine log)</switch>
+              <text foreground="text_muted" wrap="true">For troubleshooting drawing problems. MoltenVK options apply to WineD3D and Vulkan modes, CSMT to WineD3D only. Keep the defaults for normal play.</text>
+            </column>
             <column gap="10">
               <text>Installed paths</text>
               <column gap="4" padding="12" radius="md" background="surface_subtle">

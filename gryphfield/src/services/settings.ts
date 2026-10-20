@@ -22,6 +22,10 @@ function result(config: Record<string, unknown>): SettingsResult {
     extraArgs: encode(typeof config.extra_args === "string" ? config.extra_args.slice(0, 2048) : ""),
     debugLogging: config.debug_logging === true,
     rosettaAvx: config.rosetta_avx !== false,
+    stockMoltenvk: config.moltenvk_stock === true,
+    mvkArgumentBuffers: config.mvk_argument_buffers !== false,
+    wined3dCsmt: config.wined3d_csmt !== false,
+    metalValidation: config.metal_validation === true,
   };
 }
 export function load(request: SettingsRequest): SettingsResult {
@@ -54,6 +58,10 @@ export function save(request: SettingsWrite): SettingsResult {
   config.extra_args = decode(request.extraArgs);
   config.debug_logging = request.debugLogging;
   config.rosetta_avx = request.rosettaAvx;
+  config.moltenvk_stock = request.stockMoltenvk;
+  config.mvk_argument_buffers = request.mvkArgumentBuffers;
+  config.wined3d_csmt = request.wined3dCsmt;
+  config.metal_validation = request.metalValidation;
   write(path, config);
   return result(config);
 }

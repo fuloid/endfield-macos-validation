@@ -52,6 +52,10 @@ export type SettingsWrite = {
   readonly extraArgs: Uint8Array;
   readonly debugLogging: boolean;
   readonly rosettaAvx: boolean;
+  readonly stockMoltenvk: boolean;
+  readonly mvkArgumentBuffers: boolean;
+  readonly wined3dCsmt: boolean;
+  readonly metalValidation: boolean;
 };
 export type LocationWrite = {
   readonly prefixPath: Uint8Array;
@@ -62,4 +66,8 @@ export type SettingsResult = {
   readonly extraArgs: Uint8Array;
   readonly debugLogging: boolean;
   readonly rosettaAvx: boolean;
+  readonly stockMoltenvk: boolean;
+  readonly mvkArgumentBuffers: boolean;
+  readonly wined3dCsmt: boolean;
+  readonly metalValidation: boolean;
 };
