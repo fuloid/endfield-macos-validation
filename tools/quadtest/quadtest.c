@@ -6,7 +6,8 @@
  * Every case clears the backbuffer to black and draws red over the whole window, then checks a
  * pixel in the bottom-left triangle (BL), the top-right triangle (TR) and the centre.
  *   quadtest.exe [frames] [93]   prints one PASS/FAIL line per case; exit code = failures;
- *                                "93" asks for feature level 9_3 only
+ *                                "93" asks for feature level 9_3 only (anything else: any level)
+ *   quadtest.exe [frames] [93|any] [case]   runs only case 1, 2, 3, 4, 6 or 7
  */
 #define COBJMACROS
 #define WIN32_LEAN_AND_MEAN
@@ -49,6 +50,12 @@ static IDXGISwapChain *swapchain;
 static ID3D11RenderTargetView *rtv;
 static ID3D11Texture2D *backbuffer, *staging;
 static int failures;
+static int only_case;   /* 0: all cases */
+
+static int want(int n)
+{
+    return !only_case || only_case == n;
+}
 
 static ID3D11Buffer *make_buffer(UINT bind, D3D11_USAGE usage, UINT size, const void *data)
 {
@@ -139,76 +146,94 @@ static void run_cases(int frame)
 #define NAME(s) (snprintf(name, sizeof(name), "%s #%d", s, frame), name)
 
     /* 1: immutable buffer, strip */
-    vb = make_buffer(D3D11_BIND_VERTEX_BUFFER, D3D11_USAGE_IMMUTABLE, sizeof(strip), strip);
-    begin(); set_vb(vb, 0);
-    ID3D11DeviceContext_IASetPrimitiveTopology(ctx, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
-    ID3D11DeviceContext_Draw(ctx, 4, 0);
-    check(NAME("strip immutable"));
-    ID3D11Buffer_Release(vb);
-
-    /* 2: immutable buffer, list */
-    vb = make_buffer(D3D11_BIND_VERTEX_BUFFER, D3D11_USAGE_IMMUTABLE, sizeof(list), list);
-    begin(); set_vb(vb, 0);
-    ID3D11DeviceContext_IASetPrimitiveTopology(ctx, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    ID3D11DeviceContext_Draw(ctx, 6, 0);
-    check(NAME("list immutable"));
-    ID3D11Buffer_Release(vb);
-
-    /* 3: dynamic buffer, Map(DISCARD) every draw, as ANGLE's copy to the backbuffer does */
-    vb = make_buffer(D3D11_BIND_VERTEX_BUFFER, D3D11_USAGE_DYNAMIC, sizeof(strip), NULL);
-    for (i = 0; i < 3; i++)
+    if (want(1))
     {
-        map_write(vb, D3D11_MAP_WRITE_DISCARD, 0, strip, sizeof(strip));
+        vb = make_buffer(D3D11_BIND_VERTEX_BUFFER, D3D11_USAGE_IMMUTABLE, sizeof(strip), strip);
         begin(); set_vb(vb, 0);
         ID3D11DeviceContext_IASetPrimitiveTopology(ctx, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
         ID3D11DeviceContext_Draw(ctx, 4, 0);
-        snprintf(name, sizeof(name), "strip dynamic discard %d #%d", i, frame);
-        check(name);
+        check(NAME("strip immutable"));
+        ID3D11Buffer_Release(vb);
     }
-    ID3D11Buffer_Release(vb);
+
+    /* 2: immutable buffer, list */
+    if (want(2))
+    {
+        vb = make_buffer(D3D11_BIND_VERTEX_BUFFER, D3D11_USAGE_IMMUTABLE, sizeof(list), list);
+        begin(); set_vb(vb, 0);
+        ID3D11DeviceContext_IASetPrimitiveTopology(ctx, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        ID3D11DeviceContext_Draw(ctx, 6, 0);
+        check(NAME("list immutable"));
+        ID3D11Buffer_Release(vb);
+    }
+
+    /* 3: dynamic buffer, Map(DISCARD) every draw, as ANGLE's copy to the backbuffer does */
+    if (want(3))
+    {
+        vb = make_buffer(D3D11_BIND_VERTEX_BUFFER, D3D11_USAGE_DYNAMIC, sizeof(strip), NULL);
+        for (i = 0; i < 3; i++)
+        {
+            map_write(vb, D3D11_MAP_WRITE_DISCARD, 0, strip, sizeof(strip));
+            begin(); set_vb(vb, 0);
+            ID3D11DeviceContext_IASetPrimitiveTopology(ctx, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+            ID3D11DeviceContext_Draw(ctx, 4, 0);
+            snprintf(name, sizeof(name), "strip dynamic discard %d #%d", i, frame);
+            check(name);
+        }
+        ID3D11Buffer_Release(vb);
+    }
 
     /* 4: streaming buffer: junk, then the quad appended with NO_OVERWRITE, drawn at a start vertex */
-    for (i = 0; i < 16; i++) big[i] = junk;
-    vb = make_buffer(D3D11_BIND_VERTEX_BUFFER, D3D11_USAGE_DYNAMIC, sizeof(big), NULL);
-    map_write(vb, D3D11_MAP_WRITE_DISCARD, 0, big, sizeof(big));
-    map_write(vb, D3D11_MAP_WRITE_NO_OVERWRITE, 5 * sizeof(struct vertex), strip, sizeof(strip));
-    begin(); set_vb(vb, 0);
-    ID3D11DeviceContext_IASetPrimitiveTopology(ctx, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
-    ID3D11DeviceContext_Draw(ctx, 4, 5);
-    check(NAME("strip dynamic start vertex 5"));
+    if (want(4))
+    {
+        for (i = 0; i < 16; i++) big[i] = junk;
+        vb = make_buffer(D3D11_BIND_VERTEX_BUFFER, D3D11_USAGE_DYNAMIC, sizeof(big), NULL);
+        map_write(vb, D3D11_MAP_WRITE_DISCARD, 0, big, sizeof(big));
+        map_write(vb, D3D11_MAP_WRITE_NO_OVERWRITE, 5 * sizeof(struct vertex), strip, sizeof(strip));
+        begin(); set_vb(vb, 0);
+        ID3D11DeviceContext_IASetPrimitiveTopology(ctx, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+        ID3D11DeviceContext_Draw(ctx, 4, 5);
+        check(NAME("strip dynamic start vertex 5"));
 
-    /* 5: the same data reached through the vertex buffer offset instead */
-    begin(); set_vb(vb, 5 * sizeof(struct vertex));
-    ID3D11DeviceContext_Draw(ctx, 4, 0);
-    check(NAME("strip dynamic buffer offset 80"));
-    ID3D11Buffer_Release(vb);
+        /* 5: the same data reached through the vertex buffer offset instead */
+        begin(); set_vb(vb, 5 * sizeof(struct vertex));
+        ID3D11DeviceContext_Draw(ctx, 4, 0);
+        check(NAME("strip dynamic buffer offset 80"));
+        ID3D11Buffer_Release(vb);
+    }
 
     /* 6: indexed strip and indexed list, 16-bit indices */
-    vb = make_buffer(D3D11_BIND_VERTEX_BUFFER, D3D11_USAGE_IMMUTABLE, sizeof(strip), strip);
-    ib = make_buffer(D3D11_BIND_INDEX_BUFFER, D3D11_USAGE_IMMUTABLE, sizeof(idx16), idx16);
-    begin(); set_vb(vb, 0);
-    ID3D11DeviceContext_IASetIndexBuffer(ctx, ib, DXGI_FORMAT_R16_UINT, 0);
-    ID3D11DeviceContext_IASetPrimitiveTopology(ctx, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
-    ID3D11DeviceContext_DrawIndexed(ctx, 4, 0, 0);
-    check(NAME("strip indexed16"));
-    ID3D11Buffer_Release(ib);
-    ib = make_buffer(D3D11_BIND_INDEX_BUFFER, D3D11_USAGE_IMMUTABLE, sizeof(idx16_list), idx16_list);
-    begin(); set_vb(vb, 0);
-    ID3D11DeviceContext_IASetIndexBuffer(ctx, ib, DXGI_FORMAT_R16_UINT, 0);
-    ID3D11DeviceContext_IASetPrimitiveTopology(ctx, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    ID3D11DeviceContext_DrawIndexed(ctx, 6, 0, 0);
-    check(NAME("list indexed16"));
-    ID3D11Buffer_Release(ib);
-    ID3D11Buffer_Release(vb);
+    if (want(6))
+    {
+        vb = make_buffer(D3D11_BIND_VERTEX_BUFFER, D3D11_USAGE_IMMUTABLE, sizeof(strip), strip);
+        ib = make_buffer(D3D11_BIND_INDEX_BUFFER, D3D11_USAGE_IMMUTABLE, sizeof(idx16), idx16);
+        begin(); set_vb(vb, 0);
+        ID3D11DeviceContext_IASetIndexBuffer(ctx, ib, DXGI_FORMAT_R16_UINT, 0);
+        ID3D11DeviceContext_IASetPrimitiveTopology(ctx, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+        ID3D11DeviceContext_DrawIndexed(ctx, 4, 0, 0);
+        check(NAME("strip indexed16"));
+        ID3D11Buffer_Release(ib);
+        ib = make_buffer(D3D11_BIND_INDEX_BUFFER, D3D11_USAGE_IMMUTABLE, sizeof(idx16_list), idx16_list);
+        begin(); set_vb(vb, 0);
+        ID3D11DeviceContext_IASetIndexBuffer(ctx, ib, DXGI_FORMAT_R16_UINT, 0);
+        ID3D11DeviceContext_IASetPrimitiveTopology(ctx, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        ID3D11DeviceContext_DrawIndexed(ctx, 6, 0, 0);
+        check(NAME("list indexed16"));
+        ID3D11Buffer_Release(ib);
+        ID3D11Buffer_Release(vb);
+    }
 
     /* 7: default-usage buffer filled with UpdateSubresource */
-    vb = make_buffer(D3D11_BIND_VERTEX_BUFFER, D3D11_USAGE_DEFAULT, sizeof(strip), NULL);
-    ID3D11DeviceContext_UpdateSubresource(ctx, (ID3D11Resource *)vb, 0, NULL, strip, 0, 0);
-    begin(); set_vb(vb, 0);
-    ID3D11DeviceContext_IASetPrimitiveTopology(ctx, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
-    ID3D11DeviceContext_Draw(ctx, 4, 0);
-    check(NAME("strip UpdateSubresource"));
-    ID3D11Buffer_Release(vb);
+    if (want(7))
+    {
+        vb = make_buffer(D3D11_BIND_VERTEX_BUFFER, D3D11_USAGE_DEFAULT, sizeof(strip), NULL);
+        ID3D11DeviceContext_UpdateSubresource(ctx, (ID3D11Resource *)vb, 0, NULL, strip, 0, 0);
+        begin(); set_vb(vb, 0);
+        ID3D11DeviceContext_IASetPrimitiveTopology(ctx, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+        ID3D11DeviceContext_Draw(ctx, 4, 0);
+        check(NAME("strip UpdateSubresource"));
+        ID3D11Buffer_Release(vb);
+    }
 #undef NAME
 }
 
@@ -219,6 +244,8 @@ int main(int argc, char **argv)
     const char *vs_target, *ps_target;
     static const D3D_FEATURE_LEVEL levels_93[] = {D3D_FEATURE_LEVEL_9_3};
     int force_93 = argc > 2 && !strcmp(argv[2], "93");
+
+    only_case = argc > 3 ? atoi(argv[3]) : 0;
     compile_fn compile;
     ID3DBlob *vs_blob = NULL, *ps_blob = NULL, *errors = NULL;
     ID3D11VertexShader *vs;
