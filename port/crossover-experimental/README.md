@@ -103,7 +103,7 @@ See the existing engine LICENSES.md for the bundled graphics/runtime components.
 
 `.github/workflows/validate-crossover.yml` is manual-only and isolated from release
 and production caches. It verifies the archive and patches on Linux, runs the
-original deterministic MSync WaitAll race test, builds the full install on macOS,
+original deterministic MSync WaitAll race test on macOS (it needs Mach headers), builds the full install,
 and runs CPU exception, normal/direct NtQueryInformationProcess (main + worker),
 startup and every-bundled-dylib checks with Intel Homebrew hidden. Checks run
 independently and write machine-readable results even if another probe fails.

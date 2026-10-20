@@ -35,8 +35,6 @@ jobs:
           persist-credentials: false
       - name: Verify sources and apply all original FineWine patches
         run: python3 port/crossover-experimental/prepare.py --work "$RUNNER_TEMP/crossover"
-      - name: Exercise FineWine MSync WaitAll rollback
-        run: python3 port/crossover-experimental/finewine/tests/test-msync-waitall.py "$RUNNER_TEMP/crossover/wine-src"
 
   macos:
     needs: source
@@ -91,6 +89,9 @@ jobs:
       - name: Configure full standalone x86_64 Wine
         if: steps.wine.outputs.cache-hit != 'true'
         run: bash port/crossover-experimental/build.sh configure
+      - name: Exercise FineWine MSync WaitAll rollback (requires Mach headers)
+        if: steps.wine.outputs.cache-hit != 'true'
+        run: python3 port/crossover-experimental/finewine/tests/test-msync-waitall.py "$WORK_DIR/wine-src"
       - name: Build and install full Wine
         id: build
         if: steps.wine.outputs.cache-hit != 'true'
