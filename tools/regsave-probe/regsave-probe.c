@@ -27,7 +27,7 @@ int main(void)
 
     enable(L"SeBackupPrivilege");
     enable(L"SeRestorePrivilege");
-    err = RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\GryphfieldRegsaveProbe", 0, NULL, 0, KEY_ALL_ACCESS, NULL, &key, NULL);
+    err = RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\GryphfieldRegsaveProbe", 0, NULL, 0, KEY_ALL_ACCESS, NULL, &key, NULL);
     if (err) { printf("create failed %ld\n", err); return 2; }
     value = 1234;
     RegSetValueExW(key, L"probe", 0, REG_DWORD, (BYTE *)&value, sizeof(value));
@@ -40,7 +40,7 @@ int main(void)
     if (h != INVALID_HANDLE_VALUE) { size = GetFileSize(h, NULL); CloseHandle(h); }
     printf("regsave size=%lu\n", (unsigned long)size);
 
-    err = RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\GryphfieldRegsaveRestored", 0, NULL, 0, KEY_ALL_ACCESS, NULL, &restored, NULL);
+    err = RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\GryphfieldRegsaveRestored", 0, NULL, 0, KEY_ALL_ACCESS, NULL, &restored, NULL);
     if (!err) err = RegRestoreKeyW(restored, file, REG_FORCE_RESTORE);
     value = 0;
     if (!err) err = RegQueryValueExW(restored, L"probe", NULL, &type, (BYTE *)&value, &len);
@@ -48,8 +48,8 @@ int main(void)
     DeleteFileW(file);
     RegCloseKey(restored);
     RegCloseKey(key);
-    RegDeleteKeyW(HKEY_CURRENT_USER, L"Software\GryphfieldRegsaveRestored");
-    RegDeleteKeyW(HKEY_CURRENT_USER, L"Software\GryphfieldRegsaveProbe");
+    RegDeleteKeyW(HKEY_CURRENT_USER, L"Software\\GryphfieldRegsaveRestored");
+    RegDeleteKeyW(HKEY_CURRENT_USER, L"Software\\GryphfieldRegsaveProbe");
     fflush(stdout);
     return size > 0x1020 && value == 1234 ? 0 : 1;
 }
