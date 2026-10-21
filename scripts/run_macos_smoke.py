@@ -119,6 +119,17 @@ def main():
         print('process links:', links, flush=True)
         if not links:
             raise RuntimeError('no winetemp link named after the child process (0018)')
+        # 0021 pads keys saved with RegSaveKey, which ACE reads back looking for a binary hive.
+        execute('compile-regsave-probe', ['x86_64-w64-mingw32-gcc', '-O2', '-static', '-Wall', '-Wextra',
+                                         '-Werror', ROOT / 'tools/regsave-probe/regsave-probe.c',
+                                         '-o', out / 'regsave-probe.exe', '-ladvapi32'], 120)
+        execute('regsave-probe', [wine, out / 'regsave-probe.exe'], 90)
+        saved = (out / 'regsave-probe.log').read_text(errors='replace')
+        print(saved, flush=True)
+        match = re.search(r'^regsave size=(\d+)', saved, re.M)
+        if not match or int(match.group(1)) <= 0x1020 or not re.search(r'^regsave restore=1234 ', saved, re.M):
+            raise RuntimeError('RegSaveKey output is not padded past a hive header, or does not restore (0021)')
+        report.update(regsave_padded=True)
         report.update(builtin_version_hiding_passed=True, process_name_link=links[0], passed=True)
     finally:
         (out / 'smoke.json').write_text(json.dumps(report, indent=2) + '\n')

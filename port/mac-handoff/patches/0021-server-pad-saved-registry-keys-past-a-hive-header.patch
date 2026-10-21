@@ -1,0 +1,33 @@
+From: Gryphfield
+Subject: [PATCH] server: Pad keys saved with RegSaveKey past the size of a binary hive header.
+
+The anti-cheat in Endfield (ACE-Base64.dll) saves HKLM\Software\Classes\Wow6432Node\CLSID
+with RegSaveKey, maps the file, and checks for a binary hive: size > 0x1020, "regf" at
+offset 0, "hbin" at offset 0x1000. Its protected code evaluates all three reads
+unconditionally, so a file shorter than 0x1001 bytes faults (observed: a 381-byte file,
+access violation at the mapping + 0x1000, thread 0960, exit through UnityCrashHandler).
+
+Wine writes the text format. With only the 64-bit architecture built there are no
+Wow6432Node classes, so the file holds just ACE's two marker keys. A prefix with i386
+support (CrossOver, FineWine) saves a file far larger than 4 KB, the same reads land
+inside it, the check answers "not a hive", and the game continues.
+
+Pad the file with blank lines up to 0x2000 bytes. load_keys() skips empty lines, so
+RegRestoreKey still works. The check still answers "not a hive", as with CrossOver.
+---
+--- a/server/registry.c
++++ b/server/registry.c
+@@ -2001,7 +2001,13 @@
+         FILE *f = fdopen( fd, "w" );
+         if (f)
+         {
++            long size;
+             save_all_subkeys( key, f );
++            /* A program that saves a key (RegSaveKey) may read the file back as a binary hive and
++             * look 0x1000 bytes in for the "hbin" block. Wine's text format is far smaller for a
++             * small key, so pad it with blank lines, which load_keys() ignores. */
++            if ((size = ftell( f )) >= 0)
++                while (size++ < 0x2000) fputc( '\n', f );
+             if (fclose( f )) file_set_error();
+         }
+         else
