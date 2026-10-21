@@ -1,26 +1,61 @@
-# Endfield macOS Wine validation
+# Gryphfield: Arknights: Endfield on Apple Silicon
 
-Private build experiment for a pinned upstream Wine 11.19 with selected FineWine/Rosetta patches. It checks compilation and small instruction/exception tests. No game or anti-cheat is downloaded or executed by CI. Current game compatibility is unproven.
+Experimental macOS app that runs GRYPHLINK and Arknights: Endfield on a bundled, patched upstream
+**Wine 11.19** (x86_64, under Rosetta 2). This repository holds the Wine patches, the app engine and
+the CI that builds and smoke-tests everything on GitHub's Apple Silicon runners.
 
-## Run
+Status: GRYPHLINK, login and resource downloads have worked on a tester's Mac. Entering the game world is
+not yet confirmed. Passing CI does not prove gameplay, login or anti-cheat (ACE) acceptance; CI never
+downloads or runs the game.
 
-Open **Actions → Validate Wine on macOS → Run workflow**. The macOS job is manual; pushes only start portable Linux helper checks. Pushes do not start macOS builds automatically.
+## Download
 
-It runs portable helper tests on Linux, then builds the full x86_64 Wine runtime on an Apple Silicon `macos-15` runner and attempts the six-check probe under Rosetta. Source revision: `455e3509b98a6919fd4ad1def4803e08c41c03b2`. Two compile jobs and reduced debug information limit memory/storage use. Compiler cache entries are bounded at 1 GB. Each macOS job has a four-hour timeout.
+Builds are published as pre-releases (`gryphfield-v0.1.0-preN`) under
+[Releases](../../releases), with a SHA-256 file and notes listing what changed and what is unverified.
+Requires Apple Silicon, macOS 15 or later and Rosetta 2. The app is signed ad hoc, not notarized.
 
-Both successful and failed jobs upload diagnostics, retained for three days. A successful build also uploads the Wine installation, source/patch provenance, and build metadata. These binaries still depend on compatible Intel Homebrew libraries; they are not a self-contained application bundle. Private Actions usage and artifacts count against the account's allowances.
+## Layout
 
-## What success means
+| Path | Contents |
+|---|---|
+| `port/mac-handoff/patches/` | Wine patches applied to Wine 11.19 (`455e3509`), in order. `moltenvk/` holds the MoltenVK 1.4.2 patch set. |
+| `port/mac-handoff/` | `build-mac.sh`, provenance, licenses, `SHA256SUMS` and per-patch notes in `MAC_HANDOFF.md`. |
+| `engine/` | `gryphfield-engine` (the shell backend the UI calls), `assemble.sh` (builds the app's engine directory) and the Windows helpers `direct-launch` and `gryphfield-watch`. |
+| `scripts/` | CI helpers: dependency setup, the macOS smoke test, the launcher smoke test and portable helper tests. |
+| `tools/` | Small Windows probes the smoke test compiles and runs under Wine (syscall, version resource, RegSaveKey), plus DXMT patches. |
+| `port/crossover-experimental/` | Separate experiment: CrossOver 26.3.0's Wine 11.0 with FineWine patches. Not used by the app. |
 
-- The selected patches apply to the pinned source.
-- The helpers extracted from that source pass 4,378 NOP and 11 XGETBV checks.
-- Apple clang builds the macOS x86_64 code paths, including the Rosetta hooks.
-- The installed runtime initializes a fresh prefix and the probe passes all six checks under Rosetta.
+The SwiftUI app lives on the `gryphfield-ui` branch.
 
-DXMT integration, MoltenVK GPU behavior, ACE acceptance, and gameplay still need separate validation. A passing CI run does not establish those results.
+### Wine patches
 
-The audited transfer package, patch provenance, licenses, and original local evidence are under [`port/mac-handoff`](port/mac-handoff). [`MAC_HANDOFF.md`](port/mac-handoff/MAC_HANDOFF.md) documents manual use. CI uses native Homebrew build tools and Intel Homebrew runtime libraries; its setup records both toolchains.
+- `0001`–`0003`: Rosetta fixes (long NOPs, privileged instructions, XGETBV) and CrossOver workarounds.
+- `0009`–`0011`: from FineWine (the Endfield `GetProcAddress` dispatcher workaround, QPC-based relative waits).
+- `0012`: cap `select()` timeouts so long sleeps do not busy-loop on Darwin.
+- `0013`–`0015`, `0018`, `0019`: macOS integration (DXMT exports, cursor, icons, process names, Dock icon).
+- `0016`: restore the TEB GS base after SIGSYS (fixes the `0xDEADC0DE` exit on direct syscalls).
+- `0017`: optional hiding of Wine's builtin DLL version resources (off by default).
+- `0020`: keep cross-process children of layered windows visible (GRYPHLINK; candidate).
+- `0021`: pad `RegSaveKey` output past a hive header so ACE's read does not fault (candidate).
+- `0101`–`0115`: upstream-11.19 port of FineWine's ACE-CORE driver series.
 
-Current Homebrew no longer bootstraps Intel installations. CI therefore pins the Intel side to official Homebrew 5.0.0 (`c9ab4622bce3bc96253c66d2e775cedf92ad40a8`) and a matching historical core snapshot (`c93932295cbf28ce84a0c068c25b6116db7eb152`), using their Intel bottles. This is a frozen test dependency set, including unpatched MoltenVK 1.4.0 for loader checks; it is separate from the optional patched MoltenVK 1.4.2 graphics experiment.
+`MAC_HANDOFF.md` has the details, sources and what each patch was verified against.
 
-The initial repository branch is `ci/macos-validation`; this project does not push to `main`.
+## CI
+
+All macOS workflows are started manually from **Actions**.
+
+| Workflow | Purpose |
+|---|---|
+| Validate Wine on macOS | Builds Wine with the patches (cached by patch hash), then runs the Rosetta probe and the smoke test. A push only runs the portable helper checks. Run this first after changing patches. |
+| Build Gryphfield.app | Reuses that cached Wine build, adds DXMT, patched MoltenVK, GRYPHLINK and the UI (`ui_ref`, default `gryphfield-ui`), runs the engine smoke test and uploads `Gryphfield-macos.zip`. |
+| Build DXMT (experiment) | Builds DXMT from source, optionally with the layered-window transparency patch. |
+| Validate experimental CrossOver engine | Builds and packages the CrossOver experiment. |
+
+Runs upload logs and smoke results as artifacts.
+
+## Licenses
+
+Wine and its patches are LGPL-2.1-or-later. Third-party notices are in `port/mac-handoff/licenses/`
+and `engine/LICENSES.md`. Arknights: Endfield, GRYPHLINK and ACE belong to their owners. The game
+is not included; GRYPHLINK installs it on the user's machine.
