@@ -1,6 +1,6 @@
 /* Checks patch 0021: a key saved with RegSaveKey is padded past a binary hive header
- * (ACE-Base64.dll reads 0x1000 bytes into the file looking for "hbin"), and
- * RegRestoreKey still loads the padded file. Prints "regsave size=<n>" and "regsave restore=<n>".
+ * (ACE-Base64.dll reads 0x1000 bytes into the file looking for "hbin")
+ * Wine implements RegRestoreKey as a stub, so restoring is not checked. Prints "regsave size=<n>".
  */
 #include <windows.h>
 #include <stdio.h>
@@ -19,9 +19,9 @@ static void enable(const wchar_t *name)
 
 int main(void)
 {
-    HKEY key = NULL, restored = NULL;
+    HKEY key = NULL;
     WCHAR dir[MAX_PATH], file[MAX_PATH];
-    DWORD size = 0, value = 0, len = sizeof(value), type;
+    DWORD size = 0, value = 0;
     HANDLE h;
     LONG err;
 
@@ -40,16 +40,9 @@ int main(void)
     if (h != INVALID_HANDLE_VALUE) { size = GetFileSize(h, NULL); CloseHandle(h); }
     printf("regsave size=%lu\n", (unsigned long)size);
 
-    err = RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\GryphfieldRegsaveRestored", 0, NULL, 0, KEY_ALL_ACCESS, NULL, &restored, NULL);
-    if (!err) err = RegRestoreKeyW(restored, file, REG_FORCE_RESTORE);
-    value = 0;
-    if (!err) err = RegQueryValueExW(restored, L"probe", NULL, &type, (BYTE *)&value, &len);
-    printf("regsave restore=%lu err=%ld\n", (unsigned long)value, (long)err);
     DeleteFileW(file);
-    RegCloseKey(restored);
     RegCloseKey(key);
-    RegDeleteKeyW(HKEY_CURRENT_USER, L"Software\\GryphfieldRegsaveRestored");
     RegDeleteKeyW(HKEY_CURRENT_USER, L"Software\\GryphfieldRegsaveProbe");
     fflush(stdout);
-    return size > 0x1020 && value == 1234 ? 0 : 1;
+    return size > 0x1020 ? 0 : 1;
 }

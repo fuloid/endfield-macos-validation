@@ -12,8 +12,8 @@ Wow6432Node classes, so the file holds just ACE's two marker keys. A prefix with
 support (CrossOver, FineWine) saves a file far larger than 4 KB, the same reads land
 inside it, the check answers "not a hive", and the game continues.
 
-Pad the file with blank lines up to 0x2000 bytes. load_keys() skips empty lines, so
-RegRestoreKey still works. The check still answers "not a hive", as with CrossOver.
+Pad the file with blank lines up to 0x2000 bytes. load_keys() skips empty lines, so the
+registry loader still accepts the file. The check still answers "not a hive", as with CrossOver.
 ---
 --- a/server/registry.c
 +++ b/server/registry.c
