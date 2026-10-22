@@ -131,6 +131,8 @@ jobs:
           # test only, not shipped
           x86_64-w64-mingw32-gcc -O2 -Wall -Wextra -Werror tools/discord-pipe-probe/discord-pipe-probe.c \
             -o "$RUNNER_TEMP/test-tools/discord-pipe-probe.exe"
+          x86_64-w64-mingw32-gcc -O2 -Wall -Wextra -Werror engine/tests/profile-fixture.c \
+            -o "$RUNNER_TEMP/test-tools/Endfield.exe"
       - name: Assemble the engine
         env:
           WINE_INSTALL: ${{ runner.temp }}/wine-validation/wine-install
@@ -140,6 +142,23 @@ jobs:
           GRYPHLINK_DIR: ${{ runner.temp }}/gryphlink/GRYPHLINK
           TOOLS_DIR: ${{ runner.temp }}/tools
         run: PATCH_COMMIT="$(git rev-parse --short HEAD)" bash engine/assemble.sh "$RUNNER_TEMP/engine"
+      - name: CPU profiling acceptance (harmless Wine fixture, real macOS sampler)
+        run: |
+          set -euo pipefail
+          bash engine/tests/profile-target.sh
+          python3 engine/tests/ci-profile.py "$RUNNER_TEMP/engine" "$RUNNER_TEMP/cpu-profile" "$RUNNER_TEMP/test-tools/Endfield.exe"
+      - name: Upload CPU profiling evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: gryphfield-cpu-profile
+          path: |
+            ${{ runner.temp }}/cpu-profile/*.jsonl
+            ${{ runner.temp }}/cpu-profile/*.err
+            ${{ runner.temp }}/cpu-profile/*.log
+            ${{ runner.temp }}/cpu-profile/logs
+          retention-days: 7
+          if-no-files-found: warn
       # Intel Homebrew is hidden so the test proves the engine is self-contained.
       - name: Smoke-test the engine (Intel Homebrew hidden)
         run: |
@@ -193,6 +212,7 @@ jobs:
           native="$NATIVE_SDK_PATH/zig-out/bin/native"
           zig version
           "$native" check
+          "$native" test --yes
           "$native" build   # the app binary and its service host (zig-out/bin)
           ls -la zig-out/bin
           "$native" package --target macos --signing none
@@ -209,6 +229,13 @@ jobs:
           app="$RUNNER_TEMP/dist/Gryphfield.app"
           ditto "$APP_SRC" "$app"
           ditto "$RUNNER_TEMP/engine" "$app/Contents/Resources/engine"
+          UI_COMMIT="$(git -C ui rev-parse HEAD)" ENGINE_COMMIT="$(git rev-parse HEAD)" python3 - "$app/Contents/Resources/BUILD.json" <<'PY'
+          import json, os, sys
+          with open(sys.argv[1], "w") as f:
+              json.dump({"engine_commit": os.environ["ENGINE_COMMIT"], "ui_commit": os.environ["UI_COMMIT"]}, f)
+              f.write("\n")
+          PY
+          test -s "$app/Contents/Resources/engine/bin/gryphfield-profile"
           # x86_64 Mach-O files are unsigned by default; sign each before sealing the bundle
           find "$app/Contents/Resources/engine" -type f -perm -u+x -o -type f \( -name '*.so' -o -name '*.dylib' \) \
             | while IFS= read -r f; do
@@ -225,6 +252,30 @@ jobs:
             echo "- app size: $(du -sh "$app" | cut -f1); zip: $(du -sh Gryphfield-macos.zip | cut -f1)"
             echo "- sha256: $(cut -d' ' -f1 Gryphfield-macos.zip.sha256)"
           } >> "$GITHUB_STEP_SUMMARY"
+      - name: Capture the packaged UI (best effort on the CI VM)
+        continue-on-error: true
+        run: |
+          ditto "$RUNNER_TEMP/dist/Gryphfield.app" /Applications/Gryphfield.app
+          open /Applications/Gryphfield.app
+          sleep 5
+          screencapture -x "$RUNNER_TEMP/smoke/ui-main.png"
+          osascript <<'APPLESCRIPT'
+          tell application "System Events"
+            tell process "Gryphfield"
+              click button "Settings" of window 1
+            end tell
+          end tell
+          APPLESCRIPT
+          sleep 2
+          screencapture -x "$RUNNER_TEMP/smoke/ui-settings.png"
+      - name: Upload UI screenshots
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: gryphfield-ui-screenshots
+          path: ${{ runner.temp }}/smoke/ui-*.png
+          retention-days: 7
+          if-no-files-found: warn
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: Gryphfield-macos

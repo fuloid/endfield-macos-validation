@@ -641,6 +641,7 @@ case "$command" in
     kill) kill_session; finish_ok ;;
     restart) cmd_restart ;;
     logs) cmd_logs ;;
+    profile-cpu) source "$ENGINE/bin/gryphfield-profile"; cmd_profile_cpu ;;
     uninstall-game) cmd_uninstall_game "$@" ;;
     reset-prefix) cmd_reset_prefix "$@" ;;
     choose-location) cmd_choose_location ;;

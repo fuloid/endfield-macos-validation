@@ -1,0 +1,120 @@
+#!/bin/bash
+# Sourced by gryphfield-engine; bash 3.2, no test switches or alternate sampler.
+profile_candidates() { /usr/bin/pgrep -u "$(id -u)" -if 'Endfield\.exe' 2>/dev/null; }
+profile_comm() { /bin/ps -ww -p "$1" -o comm=; }
+profile_arguments() { /bin/ps -ww -p "$1" -o args=; }
+profile_environment() { /bin/ps eww -p "$1" -o command=; }
+profile_target() {
+    local candidate command environment found="" executable arguments tail before_game
+    local game_arg='("([^"]*[/\\])?Endfield[.]exe"|([A-Za-z]:[/\\][^"]*[/\\])?Endfield[.]exe|([^"[:space:]]*[/\\])?Endfield[.]exe)'
+    local wine_arg='[^[:space:]]*/?wine(64)?(-preloader)?'
+    local game_command="^($wine_arg[[:space:]]+)?$game_arg([[:space:]]|$)"
+    for candidate in $(profile_candidates); do
+        command="$(profile_comm "$candidate")" || continue
+        executable="${command//\\//}"
+        executable="${executable##*/}"
+        case "$executable" in
+            Endfield|Endfield.exe) ;;
+            wine|wine64|wine64-preloader|wine-preloader)
+                arguments="$(profile_arguments "$candidate")" || continue
+                # A mention in an environment variable or another executable's name is insufficient.
+                [[ "$arguments" =~ $game_command ]] || continue
+                # ps does not quote Wine's Windows argv[0], which may contain spaces.
+                # Reject a preceding executable instead of accepting cmd.exe ... Endfield.exe.
+                before_game="${arguments%%Endfield.exe*}"
+                case "$before_game" in *.[eE][xX][eE]*) continue ;; esac ;;
+            *) continue ;;
+        esac
+        environment="$(profile_environment "$candidate")" || continue
+        case "$environment" in *" WINEPREFIX=$PREFIX") ;;
+            *" WINEPREFIX=$PREFIX "*)
+                tail="${environment#*" WINEPREFIX=$PREFIX "}"
+                # Require an environment-variable boundary, not a longer prefix path.
+                [[ "$tail" =~ ^[A-Za-z_][A-Za-z_0-9]*= ]] || continue ;;
+            *) continue ;;
+        esac
+        [ -z "$found" ] || return 2
+        found="$candidate"
+    done
+    [ -n "$found" ] || return 1
+    printf '%s' "$found"
+}
+
+profile_identity() { /bin/ps -p "$1" -o lstart=; }
+profile_alive() {
+    local current
+    current="$(profile_identity "$target")" && [ -n "$current" ] && [ "$current" = "$identity" ]
+}
+profile_sample() { exec /usr/bin/sample "$target" 10 10 -file "$report/stacks.txt"; }
+profile_pause() { sleep 1 & pause=$!; wait "$pause"; pause=""; }
+profile_cleanup() {
+    local status=$?
+    trap - EXIT INT TERM
+    if [ -n "$sampler" ]; then
+        kill -KILL "$sampler" 2>/dev/null
+        wait "$sampler" 2>/dev/null
+        rc=$?
+    fi
+    if [ -n "$pause" ]; then kill "$pause" 2>/dev/null; wait "$pause" 2>/dev/null; fi
+    if [ -n "$report" ] && [ "$outcome" != complete ]; then
+        printf '{"sampler_exit_code":%s,"target_still_running":%s,"status":%s}\n' \
+            "$rc" "$(jbool profile_alive)" "$(jstr "$outcome")" > "$report/result.json"
+    fi
+    rm -f "$lock/owner"
+    rmdir "$lock" 2>/dev/null
+    return "$status"
+}
+
+cmd_profile_cpu() {
+    local target identity report="" lock sampler="" pause="" rc=null i current outcome=failed
+    [ "$(uname -s)" = Darwin ] || fail PROFILE_UNSUPPORTED 'CPU profiling requires macOS.'
+    [ -x /usr/bin/sample ] || fail PROFILE_UNAVAILABLE 'The macOS sampler is unavailable.'
+    target="$(profile_target)" || fail PROFILE_TARGET 'Could not identify one Endfield process in this Wine prefix. Start the game and try again.'
+    identity="$(profile_identity "$target")"
+    [ -n "$identity" ] || fail PROFILE_TARGET 'Endfield exited before capture preparation.'
+    umask 077
+    lock="$SUPPORT/cpu-profile.lock"
+    # Do not automatically steal a lock: PID reuse and partially written owners can race.
+    mkdir "$lock" 2>/dev/null || fail PROFILE_BUSY 'Another capture is active. For a stale lock, quit all Gryphfield engine processes before removing cpu-profile.lock from its application data.'
+    trap profile_cleanup EXIT
+    trap 'outcome=cancelled; fail PROFILE_CANCELLED "CPU capture cancelled. Partial files may have been saved."' INT TERM
+    printf '%s\n' "$$" > "$lock/owner" || fail PROFILE_SAVE 'Could not write capture lock.'
+    mkdir -p "$LOGS/profiles" || fail PROFILE_SAVE 'Could not create the profiles directory.'
+    report="$(mktemp -d "$LOGS/profiles/cpu-$(date -u +%Y%m%dT%H%M%SZ)-XXXXXX")" || fail PROFILE_SAVE 'Could not create the capture folder.'
+    printf '{"schema_version":1,"kind":"cpu-stack-sample","started_utc":%s,"pid":%s,"duration_seconds":10,"sampling_interval_ms":10,"engine":%s,"last_launch":%s,"macos":%s,"hardware":%s}\n' \
+        "$(jstr "$(date -u +%Y-%m-%dT%H:%M:%SZ)")" "$target" "$(engine_version_json)" \
+        "$(jstr "$(cat "$SUPPORT/last-run" 2>/dev/null)")" "$(jstr "$(sw_vers -productVersion)")" "$(jstr "$(sysctl -n hw.model)")" > "$report/metadata.json" || fail PROFILE_SAVE 'Could not write metadata.'
+    printf 'resources.tsv: UTC, native PID, ps CPU percent (lifetime average), RSS KiB, cumulative CPU time.\nStacks include waiting threads; counts are not CPU percentages. Rosetta and missing symbols limit attribution. No frame or GPU timing.\n' > "$report/README.txt" || fail PROFILE_SAVE 'Could not write report notes.'
+    : > "$report/resources.tsv" || fail PROFILE_SAVE 'Could not write resource report.'
+    for i in 5 4 3 2 1; do
+        emit "{\"event\":\"profile\",\"state\":\"preparing\",\"message\":\"Return to Endfield. Capture starts in $i seconds.\"}"
+        profile_pause
+        profile_alive || fail PROFILE_EXITED 'Endfield exited during preparation. No profile was captured.'
+    done
+    current="$(profile_target)"
+    [ "$current" = "$target" ] && profile_alive || fail PROFILE_EXITED 'Endfield exited or changed during preparation.'
+    emit '{"event":"profile","state":"sampling","message":"Capturing CPU activity for 10 seconds. Keep playing."}'
+    ( ulimit -f 131072; profile_sample ) > "$report/sampler.txt" 2>&1 &
+    sampler=$!
+    # One supervisor owns both children. No ticker shell or watchdog sleep can be orphaned.
+    i=0
+    while kill -0 "$sampler" 2>/dev/null; do
+        profile_alive || fail PROFILE_EXITED "Endfield exited during capture. Partial files: $report."
+        [ "$i" -lt 45 ] || fail PROFILE_TIMEOUT "CPU sampling timed out. Partial files: $report."
+        if [ "$i" -lt 10 ]; then
+            printf '%s\t' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$report/resources.tsv"
+            /bin/ps -p "$target" -o pid=,pcpu=,rss=,time= >> "$report/resources.tsv"
+        fi
+        profile_pause
+        i=$((i + 1))
+    done
+    wait "$sampler"; rc=$?
+    sampler=""
+    [ "$rc" = 0 ] && [ -s "$report/stacks.txt" ] && grep -q 'Call graph:' "$report/stacks.txt" || fail PROFILE_FAILED "CPU sampling failed or produced no stack report. See $report/sampler.txt."
+    profile_alive || fail PROFILE_EXITED "Endfield exited during capture. Partial files: $report."
+    # Persist the result before advertising completion.
+    printf '{"sampler_exit_code":0,"target_still_running":true,"status":"complete"}\n' > "$report/result.json" || fail PROFILE_SAVE 'Could not write capture result.'
+    outcome=complete
+    emit "{\"event\":\"profile\",\"state\":\"complete\",\"log\":$(jstr "$report/metadata.json"),\"message\":\"CPU profile saved. Reveal it in Finder to share the capture folder.\"}"
+    finish_ok
+}

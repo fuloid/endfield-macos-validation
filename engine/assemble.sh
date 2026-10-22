@@ -20,8 +20,9 @@ die() { echo "$*" >&2; exit 1; }
 mkdir -p "$OUT"/{bin,tools,licenses}
 
 # Engine CLI and Windows helpers
-cp "$HERE/bin/gryphfield-engine" "$OUT/bin/"
+cp "$HERE/bin/gryphfield-engine" "$HERE/bin/gryphfield-profile" "$OUT/bin/"
 chmod 755 "$OUT/bin/gryphfield-engine"
+chmod 644 "$OUT/bin/gryphfield-profile"
 cp "$TOOLS_DIR/gryphfield-watch.exe" "$TOOLS_DIR/direct-launch.exe" "$TOOLS_DIR/discord-bridge.exe" "$OUT/tools/"
 cp "$TOOLS_DIR/gryphfield-discord" "$OUT/bin/"
 chmod 755 "$OUT/bin/gryphfield-discord"
