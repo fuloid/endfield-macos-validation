@@ -1,10 +1,10 @@
 name: Diagnose wined3d Vulkan half window
 
-# Diagnostic branch only (push trigger): tests the pre10 app's engine with tools/quadtest.
+# Diagnostic branch only (push trigger): tests the pre11 app's engine with tools/quadtest.
 'on':
   push:
     branches: [diag/vulkan-halfwindow]
-    paths: ['.github/workflows/diag-vulkan.yml', 'scripts/diag-vulkan.sh', 'tools/quadtest/**']
+    paths: ['.github/workflows/diag-vulkan.yml', 'scripts/diag-vulkan.sh', 'scripts/diag-gryphlink.sh', 'tools/quadtest/**']
 
 permissions:
   contents: read
@@ -22,12 +22,12 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - name: Fetch the pre10 app
+      - name: Fetch the pre11 app
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p "$RUNNER_TEMP/dist"
-          gh release download gryphfield-v0.1.0-pre10 -R "$GITHUB_REPOSITORY" -D "$RUNNER_TEMP/dist"
+          gh release download gryphfield-v0.1.0-pre11 -R "$GITHUB_REPOSITORY" -D "$RUNNER_TEMP/dist"
           cd "$RUNNER_TEMP/dist"
           shasum -a 256 -c Gryphfield-macos.zip.sha256
           ditto -x -k Gryphfield-macos.zip "$RUNNER_TEMP/app"
@@ -42,7 +42,7 @@ jobs:
           unhide() { for d in /usr/local/opt /usr/local/Cellar; do [ ! -e "$d.hidden" ] || sudo mv "$d.hidden" "$d"; done; }
           trap unhide EXIT
           hide
-          bash scripts/diag-vulkan.sh "$RUNNER_TEMP/app/Gryphfield.app/Contents/Resources/engine" \
+          bash scripts/diag-gryphlink.sh "$RUNNER_TEMP/app/Gryphfield.app/Contents/Resources/engine" \
             "$RUNNER_TEMP/quadtest.exe" "$RUNNER_TEMP/diag"
       - name: Upload evidence
         if: always()
@@ -55,5 +55,6 @@ jobs:
             ${{ runner.temp }}/diag/*.png
             ${{ runner.temp }}/diag/*.jsonl
             ${{ runner.temp }}/diag/*.err
+            ${{ runner.temp }}/diag/*.gz
           retention-days: 7
           if-no-files-found: warn
