@@ -28,7 +28,7 @@ env:
   DXMT_VERSION: v0.80-gryphfield-1
   DXMT_LABEL: dxmt-589adb780354-gryphfield
   DXMT_URL: https://s.purin.my/akef/dxmt-v0.80-gryphfield-1.tar.xz
-  DXMT_SHA256: PENDING
+  DXMT_SHA256: acb8fbc0933fb63632bf9ad01249589c09004fbb3b8738a5c3c0324490743831
   GRYPHLINK_URL: https://s.purin.my/akef/gryphlink-launcher.tar.xz
   STOCK_MVK_URL: https://github.com/KhronosGroup/MoltenVK/releases/download/v1.4.2/MoltenVK-macos.tar
   STOCK_MVK_SHA256: f95765a6229cb7b915990a2890ce12ebe36a730b021545d3d52ae69ce4c4024e
