@@ -1,0 +1,59 @@
+name: Diagnose wined3d Vulkan half window
+
+# Diagnostic branch only (push trigger): tests the pre10 app's engine with tools/quadtest.
+'on':
+  push:
+    branches: [diag/vulkan-halfwindow]
+    paths: ['.github/workflows/diag-vulkan.yml', 'scripts/diag-vulkan.sh', 'tools/quadtest/**']
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  diag:
+    name: quadtest under wined3d/MoltenVK
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Fetch the pre10 app
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/dist"
+          gh release download gryphfield-v0.1.0-pre10 -R "$GITHUB_REPOSITORY" -D "$RUNNER_TEMP/dist"
+          cd "$RUNNER_TEMP/dist"
+          shasum -a 256 -c Gryphfield-macos.zip.sha256
+          ditto -x -k Gryphfield-macos.zip "$RUNNER_TEMP/app"
+      - name: Build quadtest.exe
+        run: |
+          brew install mingw-w64 >/dev/null
+          x86_64-w64-mingw32-gcc -O2 -Wall -Wextra -Werror tools/quadtest/quadtest.c \
+            -o "$RUNNER_TEMP/quadtest.exe" -ld3d11 -ldxguid
+      - name: Run quadtest variants (Intel Homebrew hidden)
+        run: |
+          hide() { for d in /usr/local/opt /usr/local/Cellar; do [ ! -e "$d" ] || sudo mv "$d" "$d.hidden"; done; }
+          unhide() { for d in /usr/local/opt /usr/local/Cellar; do [ ! -e "$d.hidden" ] || sudo mv "$d.hidden" "$d"; done; }
+          trap unhide EXIT
+          hide
+          bash scripts/diag-vulkan.sh "$RUNNER_TEMP/app/Gryphfield.app/Contents/Resources/engine" \
+            "$RUNNER_TEMP/quadtest.exe" "$RUNNER_TEMP/diag"
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: diag-vulkan
+          path: |
+            ${{ runner.temp }}/diag/*.txt
+            ${{ runner.temp }}/diag/*.log
+            ${{ runner.temp }}/diag/*.png
+            ${{ runner.temp }}/diag/*.jsonl
+            ${{ runner.temp }}/diag/*.err
+          retention-days: 7
+          if-no-files-found: warn
