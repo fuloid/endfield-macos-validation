@@ -52,6 +52,7 @@ export type SettingsWrite = {
   readonly extraArgs: Uint8Array;
   readonly debugLogging: boolean;
   readonly exceptionTrace: boolean;
+  readonly logMaxMb: Uint8Array;
   readonly rosettaAvx: boolean;
   readonly stockMoltenvk: boolean;
   readonly mvkArgumentBuffers: boolean;
@@ -68,6 +69,7 @@ export type SettingsResult = {
   readonly extraArgs: Uint8Array;
   readonly debugLogging: boolean;
   readonly exceptionTrace: boolean;
+  readonly logMaxMb: Uint8Array;
   readonly rosettaAvx: boolean;
   readonly stockMoltenvk: boolean;
   readonly mvkArgumentBuffers: boolean;

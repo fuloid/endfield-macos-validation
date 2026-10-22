@@ -16,12 +16,18 @@ function rawConfig(path: string): Record<string, unknown> {
   const value = JSON.parse(readFileSync(path, "utf8"));
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
+// Cap for each Wine log, in MB (50 to 5120). The engine trims a log that passes 95% of it.
+function logMaxMb(value: unknown): number {
+  const mb = typeof value === "number" ? value : typeof value === "string" && /^[0-9]{1,6}$/.test(value) ? Number(value) : NaN;
+  return Number.isInteger(mb) ? Math.min(5120, Math.max(50, mb)) : 1024;
+}
 function result(config: Record<string, unknown>): SettingsResult {
   return {
     graphics: encode(["dxmt", "wined3d", "vulkan"].includes(String(config.graphics)) ? String(config.graphics) : "dxmt"),
     extraArgs: encode(typeof config.extra_args === "string" ? config.extra_args.slice(0, 2048) : ""),
     debugLogging: config.debug_logging === true,
     exceptionTrace: config.exception_trace === true,
+    logMaxMb: encode(String(logMaxMb(config.log_max_mb))),
     rosettaAvx: config.rosetta_avx !== false,
     stockMoltenvk: config.moltenvk_stock === true,
     mvkArgumentBuffers: config.mvk_argument_buffers !== false,
@@ -60,6 +66,7 @@ export function save(request: SettingsWrite): SettingsResult {
   config.extra_args = decode(request.extraArgs);
   config.debug_logging = request.debugLogging;
   config.exception_trace = request.exceptionTrace;
+  config.log_max_mb = logMaxMb(decode(request.logMaxMb));
   config.rosetta_avx = request.rosettaAvx;
   config.moltenvk_stock = request.stockMoltenvk;
   config.mvk_argument_buffers = request.mvkArgumentBuffers;

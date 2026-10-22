@@ -311,6 +311,9 @@
               <text>Logging and CPU</text>
               <switch checked="{debugLogging}" on-toggle="toggle_debug">Detailed Wine logging (DLL loads, processes, driver)</switch>
               <switch checked="{exceptionTrace}" on-toggle="toggle_exception_trace">Trace every exception (crash hunting; very large logs)</switch>
+              <text>Maximum Wine log size (MB)</text>
+              <text-field text="{logCapEdit.text}" placeholder="1024" on-input="log_cap_edit" />
+              <text foreground="text_muted" wrap="true">50 to 5120 MB per launch. Past 95% of the limit, Gryphfield keeps the start of the log and the newest lines and removes the middle.</text>
               <switch checked="{rosettaAvx}" on-toggle="toggle_avx">Advertise AVX to Rosetta</switch>
               <switch checked="{hideWineVersions}" on-toggle="toggle_hide_wine_versions">Hide Wine version info from programs (test; may confuse installers)</switch>
             </column>
