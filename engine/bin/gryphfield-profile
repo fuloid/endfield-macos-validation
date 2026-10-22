@@ -53,9 +53,12 @@ profile_target() {
 }
 
 profile_identity() { /bin/ps -p "$1" -o lstart=; }
-profile_alive() {
-    local current
-    current="$(profile_identity "$target")" && [ -n "$current" ] && [ "$current" = "$identity" ]
+profile_alive() {   # same process (start time) and not a zombie: ps still lists exited, unreaped ones
+    local current state
+    current="$(profile_identity "$target")" && [ -n "$current" ] && [ "$current" = "$identity" ] || return 1
+    state="$(/bin/ps -p "$target" -o stat= 2>/dev/null)"
+    case "$state" in ''|*Z*) return 1 ;; esac
+    return 0
 }
 profile_sample() { exec /usr/bin/sample "$target" 10 10 -file "$report/stacks.txt"; }
 profile_pause() { sleep 1 & pause=$!; wait "$pause"; pause=""; }
@@ -122,7 +125,12 @@ cmd_profile_cpu() {
     done
     wait "$sampler"; rc=$?
     sampler=""
-    [ "$rc" = 0 ] && [ -s "$report/stacks.txt" ] && grep -q 'Call graph:' "$report/stacks.txt" || fail PROFILE_FAILED "CPU sampling failed or produced no stack report. See $report/sampler.txt."
+    if ! { [ "$rc" = 0 ] && [ -s "$report/stacks.txt" ] && grep -q 'Call graph:' "$report/stacks.txt"; }; then
+        # The sampler ends early when its target exits; say so rather than blaming the sampler.
+        { profile_alive && [ "$(profile_target)" = "$target" ]; } ||
+            fail PROFILE_EXITED "Endfield exited during capture. Partial files: $report."
+        fail PROFILE_FAILED "CPU sampling failed or produced no stack report. See $report/sampler.txt."
+    fi
     profile_alive || fail PROFILE_EXITED "Endfield exited during capture. Partial files: $report."
     # Persist the result before advertising completion.
     printf '{"sampler_exit_code":0,"target_still_running":true,"status":"complete"}\n' > "$report/result.json" || fail PROFILE_SAVE 'Could not write capture result.'
