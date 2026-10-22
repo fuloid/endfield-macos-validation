@@ -4,6 +4,8 @@ Experimental macOS app that runs GRYPHLINK and Arknights: Endfield on a bundled,
 **Wine 11.19** (x86_64, under Rosetta 2). This repository holds the Wine patches, the app engine and
 the CI that builds and smoke-tests everything on GitHub's Apple Silicon runners.
 
+### ⚠️ This repository is vibed by Claude & Codex. I dont read most of the code. Beware. :)
+
 Status: GRYPHLINK, login, resource downloads and the game world work on a tester's Mac (since patch 0021,
 verified 2026-10-21). Passing CI does not prove gameplay, login or anti-cheat (ACE) acceptance; CI never
 downloads or runs the game.
