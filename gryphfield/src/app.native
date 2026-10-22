@@ -282,6 +282,27 @@
     </column>
   </row>
 
+  <if test="{hasProfileNote}">
+    <row gap="10" padding="12" cross="center">
+      <text grow="1" wrap="true">{profileNote}</text>
+      <if test="{hasProfilePath}"><button size="sm" on-press="profile_reveal">Reveal in Finder</button></if>
+    </row>
+  </if>
+  <if test="{modal == 'profile'}">
+    <dialog width="540" label="Capture CPU profile" on-dismiss="profile_cancel">
+      <column padding="20" gap="14">
+        <text size="lg">Capture CPU profile</text>
+        <text wrap="true">After clicking Start, you have 5 seconds to return to Endfield. Gryphfield then captures CPU activity for 10 seconds and saves a diagnostic report.</text>
+        <text wrap="true">Keep playing during the capture. Performance may briefly change.</text>
+        <text foreground="text_muted" wrap="true">macOS may prevent access to the game's CPU profile. If that happens, Gryphfield will explain the error.</text>
+        <row gap="8" main="end">
+          <button on-press="profile_cancel">Cancel</button>
+          <button variant="primary" on-press="profile_start" disabled="{profileBusy}">Start</button>
+        </row>
+      </column>
+    </dialog>
+  </if>
+
   <if test="{modal == 'settings'}">
     <dialog width="600" label="Settings" on-dismiss="modal_close">
       <column padding="20" gap="14">
@@ -321,6 +342,11 @@
               <text>Discord</text>
               <switch checked="{discordPresence}" on-toggle="toggle_discord_presence">Show Arknights: Endfield as my Discord activity</switch>
               <text foreground="text_muted" wrap="true">Needs the Discord app running on this Mac. Shows the time played, and the game's own details (such as your level) when it sends them. Applies from the next launch.</text>
+            </column>
+            <column gap="8">
+              <text>CPU profiling</text>
+              <text foreground="text_muted" wrap="true">Capture 10 seconds of Endfield CPU activity to help diagnose performance. Start the game first.</text>
+              <button variant="secondary" on-press="profile_ask" disabled="{profileBusy or settingsBusy}">Capture CPU profile...</button>
             </column>
             <column gap="8">
               <text>Graphics diagnostics</text>

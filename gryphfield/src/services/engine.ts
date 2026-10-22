@@ -13,7 +13,7 @@ export function parse(request: ParseRequest): EngineEvent {
   const engine = field(raw.engine);
   const error = field(raw.error);
   const location = field(raw.location);
-  const valid = ["status", "step", "launcher_started", "launcher_minimized", "game_started", "unity_started", "unity_stable", "game_exited", "failed", "logs", "location", "done"].includes(String(raw.event));
+  const valid = ["profile", "status", "step", "launcher_started", "launcher_minimized", "game_started", "unity_started", "unity_stable", "game_exited", "failed", "logs", "location", "done"].includes(String(raw.event));
   const event = valid ? raw.event as EngineEvent["event"] : "unknown";
   return {
     event,

@@ -5,13 +5,21 @@ import type { DiagnosticResult, EngineEvent, SettingsResult } from "./shared.ts"
 
 export type Phase = "boot" | "checking" | "setup" | "ready" | "running" | "failure";
 export type Action = "none" | "status" | "setup" | "gryphlink" | "direct";
-export type Modal = "none" | "settings" | "failure" | "uninstall1" | "uninstall2" | "reset1" | "reset2";
+export type Modal = "profile" | "none" | "settings" | "failure" | "uninstall1" | "uninstall2" | "reset1" | "reset2";
 export type Graphics = "dxmt" | "wined3d" | "vulkan";
 export type Launch = "none" | "gryphlink" | "direct";
 export type SetupStep = "none" | "rosetta" | "prefix" | "gryphlink";
 export type StepState = "pending" | "active" | "done" | "failed";
 
 export interface Model {
+  readonly profileBusy: boolean;
+  readonly profileDone: boolean;
+  readonly profileOk: boolean;
+  readonly profileExited: boolean;
+  readonly profileExitCode: number;
+  readonly profileError: Uint8Array;
+  readonly profileNote: Uint8Array;
+  readonly profilePath: Uint8Array;
   readonly phase: Phase;
   readonly action: Action;
   readonly modal: Modal;
@@ -82,6 +90,16 @@ export interface Model {
 }
 
 export type Msg =
+  | { readonly kind: "profile_ask" }
+  | { readonly kind: "profile_cancel" }
+  | { readonly kind: "profile_start" }
+  | { readonly kind: "profile_reveal" }
+  | { readonly kind: "profile_line"; readonly bytes: Uint8Array }
+  | { readonly kind: "profile_parsed"; readonly result: EngineEvent }
+  | { readonly kind: "profile_failed"; readonly reason: Uint8Array }
+  | { readonly kind: "profile_spawn_failed"; readonly reason: Uint8Array }
+  | { readonly kind: "profile_exited"; readonly code: number }
+  | { readonly kind: "profile_settle"; readonly at: number }
   | { readonly kind: "boot"; readonly at: number }
   | { readonly kind: "enable_mock" }
   | { readonly kind: "refresh" }
@@ -145,10 +163,11 @@ export type Msg =
   | { readonly kind: "location_settle"; readonly at: number }
   | { readonly kind: "location_saved"; readonly result: SettingsResult };
 
-export const viewUnbound = ["boot", "enable_mock", "line", "exited", "settle", "spawn_failed", "parsed", "parse_failed", "control_line", "control_exited", "control_failed", "control_parsed", "diagnosed", "diagnose_failed", "settings_loaded", "settings_saved", "settings_failed", "location_line", "location_parsed", "location_exited", "location_failed", "location_settle", "location_saved"] as const;
+export const viewUnbound = ["profile_spawn_failed", "profile_line", "profile_parsed", "profile_failed", "profile_exited", "profile_settle", "boot", "enable_mock", "line", "exited", "settle", "spawn_failed", "parsed", "parse_failed", "control_line", "control_exited", "control_failed", "control_parsed", "diagnosed", "diagnose_failed", "settings_loaded", "settings_saved", "settings_failed", "location_line", "location_parsed", "location_exited", "location_failed", "location_settle", "location_saved"] as const;
 
 export function initialModel(): Model {
   return {
+    profileBusy: false, profileDone: false, profileOk: false, profileExited: false, profileExitCode: -1, profileError: asciiBytes(""), profileNote: asciiBytes(""), profilePath: asciiBytes(""),
     phase: "boot", action: "none", modal: "none", mock: false, doneOk: false, doneReceived: false, processExited: false,
     runner: asciiBytes("/bin/bash"), script: asciiBytes("/Applications/Gryphfield.app/Contents/Resources/engine/bin/gryphfield-engine"),
     rosetta: false, prefixReady: false, launcherReady: false, gameReady: false,
@@ -170,6 +189,8 @@ export function initialModel(): Model {
   };
 }
 
+export function hasProfileNote(model: Model): boolean { return model.profileNote.length > 0; }
+export function hasProfilePath(model: Model): boolean { return model.profilePath.length > 0; }
 export function ready(model: Model): boolean {
   return model.rosetta && model.prefixReady && model.launcherReady;
 }
@@ -392,10 +413,36 @@ export function update(model: Model, msg: Msg): Model | [Model, Cmd<Msg>] {
     case "stop_wine": if (model.controlBusy || !model.wineRunning) return model; return [{ ...model, controlBusy: true, stopRequested: model.stopRequested || sessionLive(model) }, Cmd.spawn([model.runner, model.script, asciiBytes("stop")], { key: "control", line: "control_line", exit: "control_exited", err: "control_failed" })];
     case "kill_wine": if (model.controlBusy || !model.wineRunning) return model; return [{ ...model, controlBusy: true, stopRequested: model.stopRequested || sessionLive(model) }, Cmd.spawn([model.runner, model.script, asciiBytes("kill")], { key: "control", line: "control_line", exit: "control_exited", err: "control_failed" })];
     case "restart": if (model.controlBusy || !ready(model)) return model; return [{ ...model, controlBusy: true, stopRequested: model.stopRequested || sessionLive(model) }, Cmd.spawn([model.runner, model.script, asciiBytes("restart")], { key: "control", line: "control_line", exit: "control_exited", err: "control_failed" })];
+    case "profile_ask": return model.profileBusy || model.settingsBusy || model.modal !== "settings" ? model : { ...model, modal: "profile" };
+    case "profile_cancel": return model.modal === "profile" ? { ...model, modal: "settings" } : model;
+    case "profile_start":
+      if (model.profileBusy || model.modal !== "profile") return model;
+      return [{ ...model, modal: "none", profileBusy: true, profileDone: false, profileOk: false, profileExited: false, profileExitCode: -1, profileError: asciiBytes(""), profilePath: asciiBytes(""), profileNote: asciiBytes("Preparing CPU capture...") }, Cmd.spawn([model.runner, model.script, asciiBytes("profile-cpu")], { key: "profile", line: "profile_line", exit: "profile_exited", err: "profile_spawn_failed" })];
+    case "profile_line": return model.profileBusy ? [model, engineParse({ line: msg.bytes }, { ok: "profile_parsed", err: "profile_failed" })] : model;
+    case "profile_parsed": {
+      const e = msg.result;
+      if (!model.profileBusy || model.profileDone || model.profileError.length > 0) return model;
+      if (e.event === "profile") return { ...model, profileNote: e.message, profilePath: e.logPath.length ? e.logPath : model.profilePath };
+      if (e.event === "done") return { ...model, profileDone: true, profileOk: e.ok, profileNote: e.ok ? asciiBytes("Finishing CPU capture...") : e.message.length ? e.message : asciiBytes("CPU capture failed.") };
+      return model;
+    }
+    // A protocol error does not mean the child stopped. Keep the spawn key busy
+    // until exit, and do not let a later success overwrite the error.
+    case "profile_failed": return model.profileBusy ? { ...model, profileError: msg.reason.length ? msg.reason : asciiBytes("Could not read the CPU capture result."), profileNote: msg.reason } : model;
+    case "profile_spawn_failed": return model.profileBusy ? { ...model, profileBusy: false, profileError: msg.reason, profileNote: msg.reason.length ? msg.reason : asciiBytes("CPU capture could not start.") } : model;
+    case "profile_exited":
+      if (!model.profileBusy || model.profileExited) return model;
+      // Service parse replies may arrive after the process exit notification.
+      return [{ ...model, profileExited: true, profileExitCode: msg.code }, Cmd.delay("profile_settle", 1000, "profile_settle")];
+    case "profile_settle":
+      if (!model.profileBusy || !model.profileExited) return model;
+      return { ...model, profileBusy: false, profileNote: model.profileError.length ? model.profileError : model.profileDone && !model.profileOk ? model.profileNote : model.profileExitCode !== 0 ? asciiBytes("CPU capture process failed. Check the engine log.") : !model.profileDone ? asciiBytes("CPU capture ended without a result. Check the engine log.") : model.profileOk ? asciiBytes("CPU profile saved. Reveal in Finder to share the capture folder.") : model.profileNote };
+    case "profile_reveal":
+      if (!model.profilePath.length) return model;
+      return [model, Cmd.revealPath(model.profilePath)];
     case "settings_open": return { ...model, modal: "settings" };
     case "modal_close":
       if (model.settingsBusy) return model;
-      if (model.modal === "settings" && !model.settingsSaved) return [{ ...model, modal: "none" }, settingsLoad({ prefixPath: model.prefixPath }, { ok: "settings_loaded", err: "settings_failed" })];
       return { ...model, modal: "none" };
     case "dxmt": return { ...model, graphics: "dxmt", settingsSaved: false };
     case "wined3d": return { ...model, graphics: "wined3d", settingsSaved: false };
@@ -413,6 +460,9 @@ export function update(model: Model, msg: Msg): Model | [Model, Cmd<Msg>] {
     case "diagnosed": return { ...model, diagnosticObserved: msg.result.observed, diagnosticSource: msg.result.source, diagnosticExplanation: msg.result.explanation, diagnosticNextStep: msg.result.nextStep };
     case "diagnose_failed": return { ...model, diagnosticExplanation: asciiBytes("Could not read the diagnostic logs."), diagnosticNextStep: msg.reason };
     case "settings_loaded": {
+      // Background status refreshes must not replace the user's settings draft,
+      // including while the capture confirmation is open or after Start closes it.
+      if (!model.settingsSaved) return model;
       const value = msg.result;
       const text = value.extraArgs;
       const size = text.length;

@@ -1,6 +1,6 @@
 export type EngineEventName = "status" | "step" | "launcher_started" | "launcher_minimized" |
   "game_started" | "unity_started" | "unity_stable" | "game_exited" |
-  "failed" | "logs" | "location" | "done" | "unknown";
+  "profile" | "failed" | "logs" | "location" | "done" | "unknown";
 
 export type EngineEvent = {
   readonly event: EngineEventName;
