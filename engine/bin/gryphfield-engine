@@ -79,6 +79,34 @@ cfg() {   # key default: read a top-level config.json value (plutil reads JSON)
         printf '%s' "$2"
     fi
 }
+# Wine log limit (Settings > Maximum Wine log size): 50-5120 MB, default 1024. The log is not
+# checked on each write but every few seconds; past 95% of the limit (the other 5% absorbs growth
+# between checks) it is cut to its first 5% (startup) and its newest 45%.
+log_cap_mb() {
+    local mb
+    mb="$(cfg log_max_mb 1024)"
+    case "$mb" in ''|*[!0-9]*|???????*) mb=1024 ;; esac
+    mb=$((10#$mb))
+    [ "$mb" -ge 50 ] || mb=50
+    [ "$mb" -le 5120 ] || mb=5120
+    printf '%s' "$mb"
+}
+trim_log() {   # log limit_mb
+    local log="$1" cap=$(( $2 * 1048576 )) size head tmp kept
+    size="$(stat -f %z "$log" 2>/dev/null)" || return 0
+    [ "$size" -gt $(( cap / 100 * 95 )) ] || return 0
+    head=$(( cap / 100 * 5 ))
+    tmp="$log.trim"
+    # Wine keeps appending (O_APPEND) while this runs, so lines written during the trim can be
+    # missing or out of place; the marker says so.
+    tail -c $(( cap / 100 * 45 )) "$log" | tail -n +2 > "$tmp" || { rm -f "$tmp"; return 0; }
+    kept="$(stat -f %z "$tmp")"
+    dd if=/dev/null of="$log" bs=1 seek="$head" 2>/dev/null   # truncates to the first 5%
+    printf '\n# --- Gryphfield removed about %s MB here (log limit %s MB); lines written during the trim may be missing or out of place ---\n' \
+        "$(( (size - head - kept) / 1048576 ))" "$2" >> "$log"
+    cat "$tmp" >> "$log"
+    rm -f "$tmp"
+}
 rosetta_ok() { /usr/bin/arch -x86_64 /usr/bin/true 2>/dev/null; }
 prefix_ready() { [ -f "$PREFIX/system.reg" ] && [ -f "$PREFIX_MARK" ]; }
 gryphlink_installed() { [ -f "$GL/Launcher.exe" ] && [ -n "$(gryphlink_version)" ]; }
@@ -340,12 +368,13 @@ cmd_run() {   # gryphlink|direct [--graphics MODE] [-- game args]
     for arg in "$@"; do EXTRA+=("$arg"); done
 
     WLOG="$LOGS/wine-$(date +%Y%m%d-%H%M%S).log"
+    LOG_CAP_MB="$(log_cap_mb)"
     ln -sf "$(basename "$WLOG")" "$LOGS/latest-wine.log"
     {
         echo "# Gryphfield $kind launch, $(date)"
         echo "# engine: $(engine_version_json)"
         echo "# graphics: $MODE (tree $TREE), WINEDEBUG=$WINEDEBUG, ROSETTA_ADVERTISE_AVX=${ROSETTA_ADVERTISE_AVX:-0}, CX_HIDE_BUILTIN_VERSION_RESOURCES=${CX_HIDE_BUILTIN_VERSION_RESOURCES:-0}, WINE_D3D_CONFIG=${WINE_D3D_CONFIG:-}, diagnostics:${DIAG:- none}"
-        echo "# GRYPHLINK $version; game args: ${GAME_ARGS[*]} ${EXTRA[*]}"
+        echo "# GRYPHLINK $version; game args: ${GAME_ARGS[*]} ${EXTRA[*]}; log limit $LOG_CAP_MB MB"
     } > "$WLOG"
     printf '%s %s\n' "$kind" "$MODE" > "$SUPPORT/last-run"
     say "run-$kind: graphics $MODE, log $WLOG"
@@ -368,7 +397,9 @@ cmd_run() {   # gryphlink|direct [--graphics MODE] [-- game args]
     exec 3< "$fifo"
     rm -f "$fifo"
 
+    trim_at=$((SECONDS + 5))
     while :; do
+        if [ "$SECONDS" -ge "$trim_at" ]; then trim_log "$WLOG" "$LOG_CAP_MB"; trim_at=$((SECONDS + 5)); fi
         if IFS= read -r -t 2 -u 3 line; then handle_event "$line"; continue; fi
         if ! kill -0 "$watch_pid" 2>/dev/null; then
             while IFS= read -r -u 3 line; do handle_event "$line"; done
@@ -387,6 +418,7 @@ cmd_run() {   # gryphlink|direct [--graphics MODE] [-- game args]
     wait "$watch_pid" 2>/dev/null
     if [ "$FAILED" = 1 ] && kill -0 "$main_pid" 2>/dev/null; then kill "$main_pid" 2>/dev/null; fi
     wait_for_exit 20 "$main_pid"
+    trim_log "$WLOG" "$LOG_CAP_MB"
     say "run-$kind ended: game_started=$GAME_STARTED unity_stable=$UNITY_STABLE exit_code=${EXIT_CODE:-none}"
 
     [ "$FAILED" = 1 ] && fail LAUNCH_FAILED "${FAIL_REASON:-The launch failed}. See $WLOG."
@@ -549,5 +581,6 @@ case "$command" in
     reset-prefix) cmd_reset_prefix "$@" ;;
     choose-location) cmd_choose_location ;;
     check-location) cmd_check_location "$@" ;;
+    _trim-log) trim_log "$1" "$2"; finish_ok ;;   # for engine/ci-smoke.sh
     *) fail UNKNOWN_COMMAND "Unknown command: $command" ;;
 esac

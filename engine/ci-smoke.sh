@@ -95,12 +95,22 @@ check 'check-location accepts a writable folder' done_ok "$OUT/location-ok.jsonl
 /bin/bash "$E" check-location "$OUT/home/prefix/drive_c" > "$OUT/location-bad.jsonl" 2>&1
 # Diagnostics settings: all five non-default values reach the Wine environment
 check 'stock MoltenVK is bundled for the diagnostics setting'     lipo "$ENGINE/moltenvk-stock/libMoltenVK.dylib" -verify_arch x86_64
-printf '{"moltenvk_stock":true,"mvk_argument_buffers":false,"wined3d_csmt":false,"metal_validation":true,"hide_wine_versions":true,"exception_trace":true}
+printf '{"moltenvk_stock":true,"mvk_argument_buffers":false,"wined3d_csmt":false,"metal_validation":true,"hide_wine_versions":true,"exception_trace":true,"log_max_mb":10}
 '     > "$OUT/home/config.json"
 launch wined3d 0 diagnostics
 check 'diagnostics settings reach the Wine log header'     grep -q 'csmt=0x0, diagnostics: stock-moltenvk no-argument-buffers no-csmt metal-validation' "$OUT/wine-diagnostics.log"
 check 'hide_wine_versions reaches the Wine environment'     grep -q 'CX_HIDE_BUILTIN_VERSION_RESOURCES=1' "$OUT/wine-diagnostics.log"
 check 'exception_trace adds the full +seh trace' grep -q 'WINEDEBUG=fixme-all,err+all,warn+seh,+seh, ' "$OUT/wine-diagnostics.log"
+check 'log_max_mb below 50 is raised to 50' grep -q '; log limit 50 MB$' "$OUT/wine-diagnostics.log"
+# Log limit: a 65 MB log with a 50 MB limit keeps its first and newest lines and drops to about half
+seq -f 'line %08.0f padding-padding-padding-padding-padding' 1 1200000 > "$OUT/trim-test.log"
+/bin/bash "$E" _trim-log "$OUT/trim-test.log" 50 > "$OUT/trim-test.jsonl" 2>&1
+check 'log trim finishes' done_ok "$OUT/trim-test.jsonl"
+check 'log trim stays under the limit' bash -c "[ \$(stat -f %z '$OUT/trim-test.log') -lt 52428800 ]"
+check 'log trim keeps the first line' bash -c "head -1 '$OUT/trim-test.log' | grep -q '^line 00000001 '"
+check 'log trim keeps the newest line' bash -c "tail -1 '$OUT/trim-test.log' | grep -q '^line 01200000 '"
+check 'log trim marks the cut' grep -q '^# --- Gryphfield removed about' "$OUT/trim-test.log"
+rm -f "$OUT/trim-test.log"
 rm -f "$OUT/home/config.json"
 check 'check-location rejects a folder inside the prefix' grep -q '"code":"LOCATION_INVALID"' "$OUT/location-bad.jsonl"
 printf '{"library_dir":"%s"}
