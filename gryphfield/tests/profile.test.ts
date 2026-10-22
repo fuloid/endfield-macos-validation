@@ -196,7 +196,7 @@ test("capture has its own process key and background settings loads preserve edi
   assert.equal(s.effects.spawns.length, 2);
   const settings = serviceConcat([
     serviceBytes(bytes("dxmt")), serviceBytes(bytes("")), serviceBoolBytes(false), serviceBoolBytes(false),
-    serviceBytes(bytes("1024")), ...[true, false, true, true, false, false, false, false].map(serviceBoolBytes),
+    serviceBytes(bytes("1024")), ...[true, false, true, false, true, true, false, false, false, false].map(serviceBoolBytes),
     serviceBytes(bytes("off")),
   ]);
   s = await app.respond(load.key, settings);

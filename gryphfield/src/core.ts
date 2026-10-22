@@ -63,6 +63,8 @@ export interface Model {
   readonly rosettaAvx: boolean;
   readonly stockMoltenvk: boolean;
   readonly mvkArgumentBuffers: boolean;
+  readonly mvkDebug: boolean;
+  readonly mvkBackgroundCompilation: boolean;
   readonly wined3dCsmt: boolean;
   readonly metalValidation: boolean;
   readonly metalHud: boolean;
@@ -153,6 +155,8 @@ export type Msg =
   | { readonly kind: "toggle_avx" }
   | { readonly kind: "toggle_stock_mvk" }
   | { readonly kind: "toggle_mvk_argbuf" }
+  | { readonly kind: "toggle_mvk_debug" }
+  | { readonly kind: "toggle_mvk_background_compilation" }
   | { readonly kind: "toggle_csmt" }
   | { readonly kind: "toggle_metal_validation" }
   | { readonly kind: "toggle_hide_wine_versions" }
@@ -187,7 +191,7 @@ export function initialModel(): Model {
     errorMessage: asciiBytes(""), exitCode: -1, gameExitCode: -1, launchFailed: false,
     diagnosticObserved: asciiBytes(""), diagnosticSource: asciiBytes(""), diagnosticExplanation: asciiBytes(""), diagnosticNextStep: asciiBytes(""),
     argsEdit: { text: asciiBytes(""), selection: { anchor: 0, focus: 0 }, composition: null },
-    debugLogging: false, exceptionTrace: false, logCapEdit: caretAtEnd(asciiBytes("1024")), rosettaAvx: true, stockMoltenvk: false, mvkArgumentBuffers: true, wined3dCsmt: true, metalValidation: false, metalHud: false, hudLog: "off", hideWineVersions: false, discordPresence: false, settingsSaved: true, settingsBusy: false, controlBusy: false, keepGameOnReset: true,
+    debugLogging: false, exceptionTrace: false, logCapEdit: caretAtEnd(asciiBytes("1024")), rosettaAvx: true, stockMoltenvk: false, mvkArgumentBuffers: true, mvkDebug: false, mvkBackgroundCompilation: true, wined3dCsmt: true, metalValidation: false, metalHud: false, hudLog: "off", hideWineVersions: false, discordPresence: false, settingsSaved: true, settingsBusy: false, controlBusy: false, keepGameOnReset: true,
     wineVersion: asciiBytes(""), gryphlinkVersion: asciiBytes(""),
     // Image ids of the static icons declared in app.json `assets.images`.
     gryphlinkIcon: 1, endfieldIcon: 2,
@@ -483,7 +487,7 @@ export function update(model: Model, msg: Msg): Model | [Model, Cmd<Msg>] {
       const size = text.length;
       if (!(size >= 0) || size > 2048) return model;
       const end = Math.trunc(size);
-      return { ...model, graphics: sameAscii(value.graphics, asciiBytes("vulkan")) ? "vulkan" : sameAscii(value.graphics, asciiBytes("wined3d")) ? "wined3d" : sameAscii(value.graphics, asciiBytes("d3dmetal")) ? "d3dmetal" : "dxmt", argsEdit: { text, selection: { anchor: end, focus: end }, composition: null }, debugLogging: value.debugLogging, exceptionTrace: value.exceptionTrace, logCapEdit: caretAtEnd(value.logMaxMb), rosettaAvx: value.rosettaAvx, stockMoltenvk: value.stockMoltenvk, mvkArgumentBuffers: value.mvkArgumentBuffers, wined3dCsmt: value.wined3dCsmt, metalValidation: value.metalValidation, metalHud: value.metalHud, hudLog: sameAscii(value.metalHudLog, asciiBytes("1s")) ? "second" : sameAscii(value.metalHudLog, asciiBytes("frame")) ? "frame" : "off", hideWineVersions: value.hideWineVersions, discordPresence: value.discordPresence, settingsSaved: true };
+      return { ...model, graphics: sameAscii(value.graphics, asciiBytes("vulkan")) ? "vulkan" : sameAscii(value.graphics, asciiBytes("wined3d")) ? "wined3d" : sameAscii(value.graphics, asciiBytes("d3dmetal")) ? "d3dmetal" : "dxmt", argsEdit: { text, selection: { anchor: end, focus: end }, composition: null }, debugLogging: value.debugLogging, exceptionTrace: value.exceptionTrace, logCapEdit: caretAtEnd(value.logMaxMb), rosettaAvx: value.rosettaAvx, stockMoltenvk: value.stockMoltenvk, mvkArgumentBuffers: value.mvkArgumentBuffers, mvkDebug: value.mvkDebug, mvkBackgroundCompilation: value.mvkBackgroundCompilation, wined3dCsmt: value.wined3dCsmt, metalValidation: value.metalValidation, metalHud: value.metalHud, hudLog: sameAscii(value.metalHudLog, asciiBytes("1s")) ? "second" : sameAscii(value.metalHudLog, asciiBytes("frame")) ? "frame" : "off", hideWineVersions: value.hideWineVersions, discordPresence: value.discordPresence, settingsSaved: true };
     }
     // The service clamps the log cap to 50-5120 MB; show the value it stored.
     case "settings_saved": return { ...model, settingsSaved: true, settingsBusy: false, logCapEdit: caretAtEnd(msg.result.logMaxMb) };
@@ -501,11 +505,13 @@ export function update(model: Model, msg: Msg): Model | [Model, Cmd<Msg>] {
     case "toggle_avx": return { ...model, rosettaAvx: !model.rosettaAvx, settingsSaved: false };
     case "toggle_stock_mvk": return { ...model, stockMoltenvk: !model.stockMoltenvk, settingsSaved: false };
     case "toggle_mvk_argbuf": return { ...model, mvkArgumentBuffers: !model.mvkArgumentBuffers, settingsSaved: false };
+    case "toggle_mvk_debug": return { ...model, mvkDebug: !model.mvkDebug, settingsSaved: false };
+    case "toggle_mvk_background_compilation": return { ...model, mvkBackgroundCompilation: !model.mvkBackgroundCompilation, settingsSaved: false };
     case "toggle_csmt": return { ...model, wined3dCsmt: !model.wined3dCsmt, settingsSaved: false };
     case "toggle_metal_validation": return { ...model, metalValidation: !model.metalValidation, settingsSaved: false };
     case "toggle_hide_wine_versions": return { ...model, hideWineVersions: !model.hideWineVersions, settingsSaved: false };
     case "toggle_discord_presence": return { ...model, discordPresence: !model.discordPresence, settingsSaved: false };
-    case "save_settings": if (model.settingsBusy) return model; return [{ ...model, settingsBusy: true }, settingsSave({ prefixPath: model.prefixPath, graphics: asciiBytes(model.graphics), extraArgs: model.argsEdit.text, debugLogging: model.debugLogging, exceptionTrace: model.exceptionTrace, logMaxMb: model.logCapEdit.text, rosettaAvx: model.rosettaAvx, stockMoltenvk: model.stockMoltenvk, mvkArgumentBuffers: model.mvkArgumentBuffers, wined3dCsmt: model.wined3dCsmt, metalValidation: model.metalValidation, metalHud: model.metalHud, metalHudLog: asciiBytes(model.hudLog === "second" ? "1s" : model.hudLog), hideWineVersions: model.hideWineVersions, discordPresence: model.discordPresence }, { ok: "settings_saved", err: "settings_failed" })];
+    case "save_settings": if (model.settingsBusy) return model; return [{ ...model, settingsBusy: true }, settingsSave({ prefixPath: model.prefixPath, graphics: asciiBytes(model.graphics), extraArgs: model.argsEdit.text, debugLogging: model.debugLogging, exceptionTrace: model.exceptionTrace, logMaxMb: model.logCapEdit.text, rosettaAvx: model.rosettaAvx, stockMoltenvk: model.stockMoltenvk, mvkArgumentBuffers: model.mvkArgumentBuffers, mvkDebug: model.mvkDebug, mvkBackgroundCompilation: model.mvkBackgroundCompilation, wined3dCsmt: model.wined3dCsmt, metalValidation: model.metalValidation, metalHud: model.metalHud, metalHudLog: asciiBytes(model.hudLog === "second" ? "1s" : model.hudLog), hideWineVersions: model.hideWineVersions, discordPresence: model.discordPresence }, { ok: "settings_saved", err: "settings_failed" })];
     case "show_prefix": return [model, Cmd.revealPath(model.prefixPath)];
     case "show_launcher": return [model, Cmd.revealPath(model.launcherPath)];
     case "show_game": return [model, Cmd.revealPath(model.gamePath)];

@@ -34,3 +34,38 @@ test("D3DMetal and independent HUD/log preferences survive save and reload", () 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("Vulkan diagnostic booleans default safely and persist independently", () => {
+  const dir = mkdtempSync(join(tmpdir(), "gryphfield-vulkan-settings-"));
+  try {
+    const prefixPath = bytes(join(dir, "prefix"));
+    const path = join(dir, "config.json");
+    const defaults = load({ prefixPath });
+    assert.equal(defaults.mvkDebug, false);
+    assert.equal(defaults.mvkBackgroundCompilation, true);
+    writeFileSync(path, JSON.stringify({ library_dir: "/Volumes/Game Library", unknown: "keep" }));
+    // Preferences survive a graphics-mode change; only the engine limits their application.
+    for (const graphics of ["vulkan", "dxmt"]) {
+      for (const mvkDebug of [false, true]) for (const mvkBackgroundCompilation of [false, true]) {
+        const saved = save({ ...defaults, prefixPath, graphics: bytes(graphics), mvkDebug, mvkBackgroundCompilation });
+        const loaded = load({ prefixPath });
+        assert.equal(saved.mvkDebug, mvkDebug);
+        assert.equal(saved.mvkBackgroundCompilation, mvkBackgroundCompilation);
+        assert.equal(loaded.mvkDebug, mvkDebug);
+        assert.equal(loaded.mvkBackgroundCompilation, mvkBackgroundCompilation);
+        const config = JSON.parse(readFileSync(path, "utf8"));
+        assert.equal(config.mvk_debug, mvkDebug);
+        assert.equal(config.mvk_background_compilation, mvkBackgroundCompilation);
+        assert.equal(config.graphics, graphics);
+        assert.equal(config.library_dir, "/Volumes/Game Library");
+        assert.equal(config.unknown, "keep");
+      }
+    }
+    // Strings/numbers do not accidentally enable debugging or disable normal compilation.
+    writeFileSync(path, JSON.stringify({ mvk_debug: "true", mvk_background_compilation: 0 }));
+    assert.equal(load({ prefixPath }).mvkDebug, false);
+    assert.equal(load({ prefixPath }).mvkBackgroundCompilation, true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

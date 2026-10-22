@@ -56,6 +56,8 @@ export type SettingsWrite = {
   readonly rosettaAvx: boolean;
   readonly stockMoltenvk: boolean;
   readonly mvkArgumentBuffers: boolean;
+  readonly mvkDebug: boolean;
+  readonly mvkBackgroundCompilation: boolean;
   readonly wined3dCsmt: boolean;
   readonly metalValidation: boolean;
   readonly hideWineVersions: boolean;
@@ -76,6 +78,8 @@ export type SettingsResult = {
   readonly rosettaAvx: boolean;
   readonly stockMoltenvk: boolean;
   readonly mvkArgumentBuffers: boolean;
+  readonly mvkDebug: boolean;
+  readonly mvkBackgroundCompilation: boolean;
   readonly wined3dCsmt: boolean;
   readonly metalValidation: boolean;
   readonly hideWineVersions: boolean;

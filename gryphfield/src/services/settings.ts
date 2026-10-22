@@ -31,6 +31,8 @@ function result(config: Record<string, unknown>): SettingsResult {
     rosettaAvx: config.rosetta_avx !== false,
     stockMoltenvk: config.moltenvk_stock === true,
     mvkArgumentBuffers: config.mvk_argument_buffers !== false,
+    mvkDebug: config.mvk_debug === true,
+    mvkBackgroundCompilation: config.mvk_background_compilation !== false,
     wined3dCsmt: config.wined3d_csmt !== false,
     metalValidation: config.metal_validation === true,
     hideWineVersions: config.hide_wine_versions === true,
@@ -73,6 +75,8 @@ export function save(request: SettingsWrite): SettingsResult {
   config.rosetta_avx = request.rosettaAvx;
   config.moltenvk_stock = request.stockMoltenvk;
   config.mvk_argument_buffers = request.mvkArgumentBuffers;
+  config.mvk_debug = request.mvkDebug;
+  config.mvk_background_compilation = request.mvkBackgroundCompilation;
   config.wined3d_csmt = request.wined3dCsmt;
   config.metal_validation = request.metalValidation;
   config.hide_wine_versions = request.hideWineVersions;

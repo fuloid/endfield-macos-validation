@@ -34,6 +34,10 @@ The actual app invokes `/Applications/Gryphfield.app/Contents/Resources/engine/b
 
 The engine thread can adjust this draft before macOS integration. No Wine or graphics internals are implemented in this UI.
 
+## Vulkan rendering diagnostics
+
+Settings > Graphics diagnostics also exposes **Vulkan debug logging** (`mvk_debug`, boolean, default false) and **Background shader compilation** (`mvk_background_compilation`, boolean, default true). Useful for debugging Vulkan rendering issues, such as flickering, missing lighting, or broken scenes. Both only apply in Vulkan mode and need a game restart after saving. Debug logging writes detailed MoltenVK/encoder errors and translated shaders to the Wine log, so logs can grow and performance may drop. Turning background compilation off sets `MVK_CONFIG_PIPELINE_CACHE_BACKGROUND_WORKERS=0`; this disables cache-load workers/pipeline replay but keeps first-use compilation and library sharing. Loading times and stutter may increase. Ship these controls with the engine that reads those exact config keys.
+
 ## Native SDK 0.11.0 build note
 
 On this Windows checkout, `native check` works, but the first `native test` needed three local SDK-cache workarounds: a test source referenced by the published `build.zig` was absent from the npm bundle; the vendored `packages/core` needed `npm ci --include=dev`; and Node 24 refused to strip TypeScript from the CLI's `node_modules` directory, so a temporary `tsx` loader was used. These changes are under ignored `.native/` or local `node_modules/`, not part of Gryphfield's source. With those workarounds, the TypeScript core, typed view, model-contract executable, and test executable pass. The command still exits nonzero on Windows because its separate analysis object fails in Zig with `coff does not support linking multiple objects into one`. macOS CI should use a corrected SDK package or apply a pinned, audited workaround before building.

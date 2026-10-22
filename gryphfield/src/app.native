@@ -364,9 +364,13 @@
               <text>Graphics diagnostics</text>
               <switch checked="{stockMoltenvk}" on-toggle="toggle_stock_mvk">Use stock MoltenVK 1.4.2 instead of the patched build</switch>
               <switch checked="{mvkArgumentBuffers}" on-toggle="toggle_mvk_argbuf">MoltenVK Metal argument buffers</switch>
+              <switch checked="{mvkDebug}" on-toggle="toggle_mvk_debug">Vulkan debug logging</switch>
+              <text foreground="text_muted" wrap="true">Useful for debugging Vulkan rendering issues, such as flickering, missing lighting, or broken scenes. Only applies in Vulkan mode. Restart the game to apply. Creates larger Wine logs and may reduce performance.</text>
+              <switch checked="{mvkBackgroundCompilation}" on-toggle="toggle_mvk_background_compilation">Background shader compilation</switch>
+              <text foreground="text_muted" wrap="true">Useful for debugging Vulkan rendering issues, such as flickering, missing lighting, or broken scenes. Turn off to compare without background shader compilation. Only applies in Vulkan mode. Restart the game to apply. May increase loading times and stutter when turned off.</text>
               <switch checked="{wined3dCsmt}" on-toggle="toggle_csmt">WineD3D command stream thread (CSMT)</switch>
               <switch checked="{metalValidation}" on-toggle="toggle_metal_validation">Metal API validation (slow; findings go to the Wine log)</switch>
-              <text foreground="text_muted" wrap="true">For troubleshooting drawing problems. MoltenVK options apply to WineD3D and Vulkan modes, CSMT to WineD3D only. Keep the defaults for normal play.</text>
+              <text foreground="text_muted" wrap="true">For troubleshooting drawing problems. Stock MoltenVK and argument buffers apply to WineD3D and Vulkan modes, the two shader diagnostics above to Vulkan only, and CSMT to WineD3D only. Keep the defaults for normal play.</text>
             </column>
             <column gap="10">
               <text>Installed paths</text>
