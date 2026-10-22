@@ -289,7 +289,7 @@
     </row>
   </if>
   <if test="{modal == 'profile'}">
-    <dialog width="540" label="Capture CPU profile" on-dismiss="profile_cancel">
+    <dialog width="540" height="320" label="Capture CPU profile" on-dismiss="profile_cancel">
       <column padding="20" gap="14">
         <text size="lg">Capture CPU profile</text>
         <text wrap="true">After clicking Start, you have 5 seconds to return to Endfield. Gryphfield then captures CPU activity for 10 seconds and saves a diagnostic report.</text>
