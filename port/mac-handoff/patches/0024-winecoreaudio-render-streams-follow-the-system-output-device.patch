@@ -1,0 +1,65 @@
+From: Gryphfield
+Subject: [PATCH] winecoreaudio.drv: Render streams follow the macOS system output device.
+
+mmdevapi lists the endpoints once per process, and each render stream's AUHAL unit
+was bound to the device the app opened. When the system output changed later
+(headphones plugged in, AirPods connected), the game kept playing on the old device,
+usually the built-in speakers, while the volume keys controlled the new one. Few
+Windows apps reopen their stream when the default changes (Wine bug 54779).
+
+Render streams now use the default output unit, which plays on the macOS system output
+device and moves with it, converting the stream format as needed. Capture streams are
+unchanged. WINECOREAUDIO_FIXED_DEVICE=1 restores the old binding.
+---
+diff --git a/dlls/winecoreaudio.drv/coreaudio.c b/dlls/winecoreaudio.drv/coreaudio.c
+index 0ec10fe..bd77663 100644
+--- a/dlls/winecoreaudio.drv/coreaudio.c
++++ b/dlls/winecoreaudio.drv/coreaudio.c
+@@ -475,16 +475,33 @@ static OSStatus ca_capture_cb(void *user, AudioUnitRenderActionFlags *flags,
+     return noErr;
+ }
+ 
++/* Render streams play on the macOS system output and follow it when it changes (headphones
++ * plugged in, AirPods connected), as Mac apps do; Windows apps keep a stream on the device they
++ * opened, and few of them reopen it when the default changes. WINECOREAUDIO_FIXED_DEVICE=1
++ * keeps each stream on the device the app chose. */
++static BOOL follow_system_output(EDataFlow dataflow)
++{
++    static int fixed = -1;
++
++    if (fixed == -1)
++    {
++        const char *env = getenv("WINECOREAUDIO_FIXED_DEVICE");
++        fixed = env && *env && *env != '0';
++    }
++    return dataflow == eRender && !fixed;
++}
++
+ static AudioComponentInstance get_audiounit(EDataFlow dataflow, AudioDeviceID adevid)
+ {
+     AudioComponentInstance unit;
+     AudioComponent comp;
+     AudioComponentDescription desc;
+     OSStatus sc;
++    BOOL follow = follow_system_output(dataflow);
+ 
+     memset(&desc, 0, sizeof(desc));
+     desc.componentType = kAudioUnitType_Output;
+-    desc.componentSubType = kAudioUnitSubType_HALOutput;
++    desc.componentSubType = follow ? kAudioUnitSubType_DefaultOutput : kAudioUnitSubType_HALOutput;
+     desc.componentManufacturer = kAudioUnitManufacturer_Apple;
+ 
+     if(!(comp = AudioComponentFindNext(NULL, &desc))){
+@@ -520,6 +537,12 @@ static AudioComponentInstance get_audiounit(EDataFlow dataflow, AudioDeviceID ad
+         }
+     }
+ 
++    /* the default output unit picks its device itself and does not accept one */
++    if(follow){
++        TRACE("render stream follows the system output device\n");
++        return unit;
++    }
++
+     sc = AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice,
+             kAudioUnitScope_Global, 0, &adevid, sizeof(adevid));
+     if(sc != noErr){

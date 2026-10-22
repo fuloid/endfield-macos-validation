@@ -39,6 +39,7 @@ The SwiftUI app lives on the `gryphfield-ui` branch.
 - `0021`: pad `RegSaveKey` output past a hive header so ACE's read does not fault (verified on a tester's Mac).
 - `0022`: log Rosetta NOP skips on their own `rosetta` debug channel instead of `seh`.
 - `0023`: windows that ask DWM for blur-behind (GRYPHLINK) are composited with their content's alpha (transparent, rounded corners).
+- `0024`: game sound follows the macOS output device (headphones, AirPods) instead of staying on the device it started with.
 - `0101`–`0115`: upstream-11.19 port of FineWine's ACE-CORE driver series.
 
 `MAC_HANDOFF.md` has the details, sources and what each patch was verified against.
