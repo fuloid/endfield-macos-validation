@@ -3,9 +3,19 @@
 profile_candidates() { /usr/bin/pgrep -u "$(id -u)" -if 'Endfield\.exe' 2>/dev/null; }
 profile_comm() { /bin/ps -ww -p "$1" -o comm=; }
 profile_arguments() { /bin/ps -ww -p "$1" -o args=; }
-profile_environment() { /bin/ps eww -p "$1" -o command=; }
+profile_from_engine() {   # pid: its executable (lsof "txt" vnode) is a Wine loader of this engine
+    # Patch 0018 execs through $TMPDIR/winetemp-*/<exe name>, a hard link (or symlink) to the loader,
+    # so compare the file itself (device:inode), not its path.
+    local path id loader
+    path="$(/usr/sbin/lsof -a -p "$1" -d txt -Fn 2>/dev/null | sed -n 's/^n//p' | head -1)"
+    [ -n "$path" ] && id="$(/usr/bin/stat -L -f '%d:%i' "$path" 2>/dev/null)" || return 1
+    for loader in "$ENGINE"/wine/bin/* "$ENGINE"/wine-dxmt/bin/*; do
+        [ -f "$loader" ] && [ "$(/usr/bin/stat -L -f '%d:%i' "$loader" 2>/dev/null)" = "$id" ] && return 0
+    done
+    return 1
+}
 profile_target() {
-    local candidate command environment found="" executable arguments tail before_game
+    local candidate command found="" executable arguments before_game
     local game_arg='("([^"]*[/\\])?Endfield[.]exe"|([A-Za-z]:[/\\][^"]*[/\\])?Endfield[.]exe|([^"[:space:]]*[/\\])?Endfield[.]exe)'
     local wine_arg='[^[:space:]]*/?wine(64)?(-preloader)?'
     local game_command="^($wine_arg[[:space:]]+)?$game_arg([[:space:]]|$)"
@@ -25,14 +35,10 @@ profile_target() {
                 case "$before_game" in *.[eE][xX][eE]*) continue ;; esac ;;
             *) continue ;;
         esac
-        environment="$(profile_environment "$candidate")" || continue
-        case "$environment" in *" WINEPREFIX=$PREFIX") ;;
-            *" WINEPREFIX=$PREFIX "*)
-                tail="${environment#*" WINEPREFIX=$PREFIX "}"
-                # Require an environment-variable boundary, not a longer prefix path.
-                [[ "$tail" =~ ^[A-Za-z_][A-Za-z_0-9]*= ]] || continue ;;
-            *) continue ;;
-        esac
+        # Wine rewrites its argv/environment area to name the process (patch 0018), so ps shows no
+        # WINEPREFIX. The kernel's executable path cannot be rewritten: require Gryphfield's own Wine
+        # loader. Gryphfield has a single prefix, so that ties the process to it.
+        profile_from_engine "$candidate" || continue
         [ -z "$found" ] || return 2
         found="$candidate"
     done

@@ -5,17 +5,17 @@ source "${1:-$(dirname "$0")/../bin/gryphfield-profile}"
 PREFIX='/tmp/profile prefix'
 comm='/wine/bin/wine64-preloader'
 args='wine64 C:\games\Endfield.exe'
-fixture_environment="wine64 C:\games\Endfield.exe WINEPREFIX=$PREFIX OTHER=value"
+from_engine=1   # the candidate's executable is (1) or is not (0) this engine's Wine loader
 candidates='101'
 profile_candidates() { printf '%s\n' "$candidates"; }
 profile_comm() { printf '%s\n' "$comm"; }
 profile_arguments() { printf '%s\n' "$args"; }
-profile_environment() { printf '%s\n' "$fixture_environment"; }
+profile_from_engine() { [ "$from_engine" = 1 ]; }
 expect() {
     local actual rc=0
     actual="$(profile_target)" || rc=$?
     [ "$rc" = "$1" ] && [ "$actual" = "${2:-}" ] || {
-        echo "unexpected target: rc=$rc pid=$actual comm=$comm args=$args env=$fixture_environment" >&2
+        echo "unexpected target: rc=$rc pid=$actual comm=$comm args=$args from_engine=$from_engine" >&2
         exit 1
     }
 }
@@ -44,16 +44,10 @@ expect 1
 comm='C:\Program Files\Endfield.exe'
 expect 0 101
 comm='/tmp/Endfield.exe'
-fixture_environment="Endfield.exe WINEPREFIX=$PREFIX-suffix OTHER=value"
+# an Endfield.exe run by another Wine (CrossOver, a different engine) is never selected
+from_engine=0
 expect 1
-fixture_environment="Endfield.exe WINEPREFIX=$PREFIX suffix OTHER=value"
-expect 1
-fixture_environment="Endfield.exe WINEPREFIX=/other OTHER=value"
-expect 1
-fixture_environment="Endfield.exe WINEPREFIX=$PREFIX"
-expect 0 101
-PREFIX='/tmp/[literal]* prefix'
-fixture_environment="Endfield.exe WINEPREFIX=$PREFIX OTHER=value"
+from_engine=1
 expect 0 101
 candidates='101 102'
 expect 2

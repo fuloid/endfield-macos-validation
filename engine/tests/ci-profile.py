@@ -70,8 +70,8 @@ def terminal(name, p, code=None):
     print("PASS", name, flush=True)
 
 def target():
-    p = sp.run(["/bin/bash", "-c", 'PREFIX="$1"; source "$2"; profile_target',
-                "target", env["WINEPREFIX"], str(helper)], env=env, text=True, capture_output=True)
+    p = sp.run(["/bin/bash", "-c", 'PREFIX="$1"; ENGINE="$3"; source "$2"; profile_target',
+                "target", env["WINEPREFIX"], str(helper), str(engine)], env=env, text=True, capture_output=True)
     return p.stdout if p.returncode == 0 else ""
 
 def launch(name):
