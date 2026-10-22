@@ -212,7 +212,10 @@ function allDigits(bytes: Uint8Array): boolean {
   return true;
 }
 function caretAtEnd(text: Uint8Array): TextEditState {
-  return { text, selection: { anchor: text.length, focus: text.length }, composition: null };
+  const size = text.length;
+  if (!(size >= 0) || size > 2048) return { text, selection: { anchor: 0, focus: 0 }, composition: null };
+  const end = Math.trunc(size);
+  return { text, selection: { anchor: end, focus: end }, composition: null };
 }
 function orUnknown(value: Uint8Array): Uint8Array {
   return value.length > 0 ? value : asciiBytes("Unknown");
