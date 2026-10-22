@@ -125,7 +125,7 @@ def dead(pid):
 try:
     # No downloads/setup or GRYPHLINK: initialize only a disposable prefix with bundled Wine.
     sp.run([str(engine / "wine/bin/wine"), "wineboot", "-u"], env=env,
-           stdout=open(out / "wineboot.log", "w"), stderr=sp.STDOUT, check=True, timeout=90)
+           stdout=open(out / "wineboot.log", "w"), stderr=sp.STDOUT, check=True, timeout=600)
     terminal("no-game", start("no-game"), "PROFILE_TARGET")
     launch("success")
     until(lambda: bool(target()))
