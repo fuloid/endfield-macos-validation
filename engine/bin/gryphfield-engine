@@ -709,7 +709,18 @@ case "$command" in
         use_wine "$1"
         LOG_CAP_MB="$(log_cap_mb)"
         perf_start
-        run_timeout 45 "$WINE" "$2"
+        export WINEDEBUG="$WINEDEBUG,+seh,+unwind,+macdrv"
+        "$WINE" "$2" &
+        fixture_pid=$! fixture_start=$SECONDS sampled=0
+        while kill -0 "$fixture_pid" 2>/dev/null; do
+            if [ "$sampled" = 0 ] && [ "$SECONDS" -ge $((fixture_start + 30)) ]; then
+                /usr/bin/sample "$fixture_pid" 2 10 -file "$LOGS/device-$1-stacks.txt" 2>&1
+                sampled=1
+            fi
+            if [ "$SECONDS" -ge $((fixture_start + 45)) ]; then kill -9 "$fixture_pid" 2>/dev/null; break; fi
+            sleep 1
+        done
+        wait "$fixture_pid"
         rc=$?
         perf_stop
         exit "$rc" ;;

@@ -17,6 +17,8 @@ int main(void)
     D3D_FEATURE_LEVEL level;
     HRESULT hr;
     unsigned int frames = 0;
+    setvbuf(stdout, NULL, _IONBF, 0);
+    puts("stage=window");
     wc.lpfnWndProc = DefWindowProcW;
     wc.hInstance = GetModuleHandleW(NULL);
     wc.lpszClassName = L"GryphfieldD3D11Probe";
@@ -33,15 +35,21 @@ int main(void)
     desc.OutputWindow = window;
     desc.Windowed = TRUE;
     desc.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
+    puts("stage=device-and-swapchain");
     hr = D3D11CreateDeviceAndSwapChain(NULL, D3D_DRIVER_TYPE_HARDWARE, NULL, 0, NULL, 0, D3D11_SDK_VERSION,
                                      &desc, &swap, &device, &level, &context);
     printf("device_hresult=0x%08lx\n", (unsigned long)hr);
     fflush(stdout);
     if (FAILED(hr)) return 2; // clean device refusal, distinct from crash/timeout
     printf("feature_level=0x%x\n", level);
+    puts("stage=get-buffer");
     hr = IDXGISwapChain_GetBuffer(swap, 0, &IID_ID3D11Texture2D, (void **)&back);
-    if (SUCCEEDED(hr)) hr = ID3D11Device_CreateRenderTargetView(device, (ID3D11Resource *)back, NULL, &target);
+    if (SUCCEEDED(hr)) {
+        puts("stage=render-target");
+        hr = ID3D11Device_CreateRenderTargetView(device, (ID3D11Resource *)back, NULL, &target);
+    }
     if (FAILED(hr)) return 3;
+    puts("stage=present");
     for (frames = 0; frames < 240; frames++) {
         MSG msg;
         float color[] = {frames / 240.0f, 0.15f, 0.35f, 1.0f};
@@ -50,13 +58,16 @@ int main(void)
         hr = IDXGISwapChain_Present(swap, 1, 0);
         if (FAILED(hr)) { printf("present_hresult=0x%08lx\n", (unsigned long)hr); return 4; }
         Sleep(25);
+        if (frames % 60 == 0) printf("frame=%u\n", frames);
     }
     printf("presented_frames=%u\n", frames);
+    puts("stage=release");
     ID3D11RenderTargetView_Release(target);
     ID3D11Texture2D_Release(back);
     IDXGISwapChain_Release(swap);
     ID3D11DeviceContext_Release(context);
     ID3D11Device_Release(device);
     DestroyWindow(window);
+    puts("stage=complete");
     return 0;
 }

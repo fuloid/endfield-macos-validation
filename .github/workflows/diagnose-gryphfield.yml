@@ -1,0 +1,178 @@
+name: Diagnose Gryphfield graphics and UI
+'on':
+  workflow_dispatch:
+    inputs:
+      ui_ref:
+        type: string
+        default: 2d53e811a4e7e6cc66bd9bb8f1cdcd4c92c85776
+      base_run:
+        description: App run containing the unchanged patched MoltenVK artifact
+        type: string
+        default: '39793457105'
+permissions:
+  contents: read
+  actions: read
+defaults:
+  run:
+    shell: bash
+env:
+  ENGINE_VERSION: 0.1.0-pre12
+  # DXMT v0.80 (589adb78) built by "Build DXMT (experiment)" with tools/dxmt/*.patch, frozen on R2.
+  # DXMT_LABEL is the tarball's top directory.
+  DXMT_VERSION: v0.80-gryphfield-1
+  DXMT_LABEL: dxmt-589adb780354-gryphfield
+  DXMT_URL: https://s.purin.my/akef/dxmt-v0.80-gryphfield-1.tar.xz
+  # Apple's D3DMetal (Game Porting Toolkit 4.0b3), minimum D3D11 runtime packed by
+  # tools/d3dmetal/pack.py, frozen on R2. D3DMETAL_LABEL is the top directory.
+  D3DMETAL_VERSION: 4.0b3-gryphfield-1
+  D3DMETAL_LABEL: d3dmetal-4.0b3
+  D3DMETAL_URL: https://s.purin.my/akef/d3dmetal-4.0b3-gryphfield-1.tar.xz
+  D3DMETAL_SHA256: 5243f4c000b4235096a5c1a9d2891b5ceffc315000d35e198a8f8352a195f7f0
+  DXMT_SHA256: acb8fbc0933fb63632bf9ad01249589c09004fbb3b8738a5c3c0324490743831
+  GRYPHLINK_URL: https://s.purin.my/akef/gryphlink-launcher.tar.xz
+  STOCK_MVK_URL: https://github.com/KhronosGroup/MoltenVK/releases/download/v1.4.2/MoltenVK-macos.tar
+  STOCK_MVK_SHA256: f95765a6229cb7b915990a2890ce12ebe36a730b021545d3d52ae69ce4c4024e
+  GRYPHLINK_SHA256: 8d400eab612bc479271ca74f2e736d614bdb3cf1d4bee90536ca92ec5afb6c20
+  NATIVE_SDK_TAG: v0.11.0
+  NATIVE_SDK_COMMIT: 16f29572307c2cc133907537c4dfd98046d4e0f4
+  NATIVE_SDK_PATH: ${{ github.workspace }}/../native-sdk
+  HOMEBREW_NO_AUTO_UPDATE: '1'
+  HOMEBREW_NO_INSTALL_CLEANUP: '1'
+
+jobs:
+  graphics:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Restore the Wine build from "Validate Wine on macOS"
+        id: wine
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ runner.temp }}/wine-validation/wine-install
+          key: wine-install-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('port/mac-handoff/patches/**', 'port/mac-handoff/build-mac.sh', 'scripts/ci-macos-deps.sh') }}
+      - name: Require the cached Wine build
+        run: |
+          if [ "${{ steps.wine.outputs.cache-hit }}" != true ]; then
+            echo '::error::No cached Wine build for these patches. Run "Validate Wine on macOS" first.'
+            exit 1
+          fi
+          test -d "$RUNNER_TEMP/wine-validation/wine-install/lib/external"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: moltenvk-patched
+          path: ${{ runner.temp }}/moltenvk
+          run-id: ${{ inputs.base_run }}
+          github-token: ${{ github.token }}
+      - name: Fetch DXMT and GRYPHLINK (pinned hashes)
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          curl -fsSL -o dxmt.tar.xz "$DXMT_URL"
+          echo "$DXMT_SHA256  dxmt.tar.xz" | shasum -a 256 -c
+          mkdir dxmt && tar -xJf dxmt.tar.xz -C dxmt
+          curl -fsSL -o d3dmetal.tar.xz "$D3DMETAL_URL"
+          echo "$D3DMETAL_SHA256  d3dmetal.tar.xz" | shasum -a 256 -c
+          mkdir d3dmetal && tar -xJf d3dmetal.tar.xz -C d3dmetal
+          curl -fsSL -o gryphlink.tar.xz "$GRYPHLINK_URL"
+          echo "$GRYPHLINK_SHA256  gryphlink.tar.xz" | shasum -a 256 -c
+          mkdir gryphlink && tar -xJf gryphlink.tar.xz -C gryphlink
+          curl -fsSL -o stock-mvk.tar "$STOCK_MVK_URL"
+          echo "$STOCK_MVK_SHA256  stock-mvk.tar" | shasum -a 256 -c
+          mkdir stock-mvk && tar -xf stock-mvk.tar -C stock-mvk
+          ls dxmt/*/ gryphlink/GRYPHLINK stock-mvk/MoltenVK/MoltenVK/dynamic/dylib/macOS/libMoltenVK.dylib
+      - name: Build the helpers
+        run: |
+          set -euo pipefail
+          brew install mingw-w64 >/dev/null
+          mkdir -p "$RUNNER_TEMP/tools" "$RUNNER_TEMP/test-tools"
+          x86_64-w64-mingw32-gcc -O2 -Wall -Wextra -Werror -municode engine/tools/gryphfield-watch.c \
+            -o "$RUNNER_TEMP/tools/gryphfield-watch.exe"
+          x86_64-w64-mingw32-gcc -O2 -Wall -municode -mwindows engine/tools/direct-launch.c \
+            -o "$RUNNER_TEMP/tools/direct-launch.exe"
+          # Discord Rich Presence: the Windows pipe end and the native relay (arm64 and x86_64)
+          x86_64-w64-mingw32-gcc -O2 -Wall -Wextra -Werror -municode engine/tools/discord-bridge.c \
+            -o "$RUNNER_TEMP/tools/discord-bridge.exe" -lws2_32
+          clang -O2 -Wall -Wextra -Werror -arch arm64 -arch x86_64 -mmacosx-version-min=11.0 \
+            engine/tools/gryphfield-discord.c -o "$RUNNER_TEMP/tools/gryphfield-discord"
+          lipo -info "$RUNNER_TEMP/tools/gryphfield-discord"
+          clang -O2 -Wall -Wextra -Werror -arch arm64 -arch x86_64 -mmacosx-version-min=11.0 \
+            engine/tools/gryphfield-hud.m -framework Foundation -o "$RUNNER_TEMP/tools/gryphfield-hud"
+          # test only, not shipped
+          x86_64-w64-mingw32-gcc -O2 -Wall -Wextra -Werror tools/discord-pipe-probe/discord-pipe-probe.c \
+            -o "$RUNNER_TEMP/test-tools/discord-pipe-probe.exe"
+          x86_64-w64-mingw32-gcc -O2 -Wall -Wextra -Werror engine/tests/profile-fixture.c \
+            -o "$RUNNER_TEMP/test-tools/Endfield.exe"
+          x86_64-w64-mingw32-gcc -O2 -Wall -Wextra -Werror engine/tests/d3d11-probe.c \
+            -o "$RUNNER_TEMP/test-tools/d3d11-probe.exe" -ld3d11 -ldxguid
+          clang -O2 -Wall -Wextra -Werror -arch x86_64 engine/tests/framework-probe.c \
+            -o "$RUNNER_TEMP/test-tools/framework-probe"
+          clang -O2 -Wall -Wextra -Werror engine/tests/hud-test.m -framework Foundation \
+            -o "$RUNNER_TEMP/test-tools/hud-test"
+          "$RUNNER_TEMP/test-tools/hud-test"
+      - name: Assemble the engine
+        env:
+          WINE_INSTALL: ${{ runner.temp }}/wine-validation/wine-install
+          DXMT_DIR: ${{ runner.temp }}/dxmt/${{ env.DXMT_LABEL }}
+          D3DMETAL_DIR: ${{ runner.temp }}/d3dmetal/${{ env.D3DMETAL_LABEL }}
+          MVK_DIR: ${{ runner.temp }}/moltenvk
+          STOCK_MVK_DYLIB: ${{ runner.temp }}/stock-mvk/MoltenVK/MoltenVK/dynamic/dylib/macOS/libMoltenVK.dylib
+          GRYPHLINK_DIR: ${{ runner.temp }}/gryphlink/GRYPHLINK
+          TOOLS_DIR: ${{ runner.temp }}/tools
+        run: PATCH_COMMIT="$(git rev-parse --short HEAD)" bash engine/assemble.sh "$RUNNER_TEMP/engine"
+      - name: Diagnose real D3D11 device and swapchain presentation
+        run: bash engine/tests/graphics-diagnostic.sh "$RUNNER_TEMP/engine" "$RUNNER_TEMP/graphics-diagnostic" "$RUNNER_TEMP/test-tools"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: graphics-diagnostic
+          path: ${{ runner.temp }}/graphics-diagnostic
+          retention-days: 7
+  ui:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - name: Check out the UI
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.ui_ref }}
+          path: ui
+          persist-credentials: false
+      # Same toolchain as the Native SDK's own CI and its scaffolded app CI: Zig 0.16.0, Node 24,
+      # the SDK checkout with packages/core installed (the TypeScript core compiler), and the CLI
+      # built from that checkout. Running the SDK from a git checkout rather than node_modules also
+      # avoids Node refusing to strip TypeScript inside node_modules.
+      - uses: vercel-labs/setup-zig@83c1594f26b86da8a9a8ddd9b5ee5f3af0f96943 # v1
+        with:
+          version: 0.16.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+      - name: Fetch and build Native SDK ${{ env.NATIVE_SDK_TAG }}
+        run: |
+          set -euo pipefail
+          git init -q "$NATIVE_SDK_PATH"
+          git -C "$NATIVE_SDK_PATH" fetch -q --depth 1 https://github.com/vercel-labs/native.git "$NATIVE_SDK_COMMIT"
+          git -C "$NATIVE_SDK_PATH" checkout -q FETCH_HEAD
+          npm ci --prefix "$NATIVE_SDK_PATH/packages/core"
+          (cd "$NATIVE_SDK_PATH" && zig build)
+          "$NATIVE_SDK_PATH/zig-out/bin/native" --version || true
+      - name: Build the Gryphfield UI app
+        working-directory: ui/gryphfield
+        run: |
+          set -euo pipefail
+          native="$NATIVE_SDK_PATH/zig-out/bin/native"
+          zig version
+          "$native" check
+          "$native" test --yes
+          "$native" build   # the app binary and its service host (zig-out/bin)
+          ls -la zig-out/bin
+          "$native" package --target macos --signing none
+          app="$(find . -name '*.app' -type d -prune -not -path './node_modules/*' | head -1)"
+          test -n "$app" || { echo 'no .app produced'; exit 1; }
+          ls -la "$app/Contents/MacOS"
+          file "$app/Contents/MacOS"/* | grep -q 'Mach-O' || { echo 'the package has no app executable'; exit 1; }
+          echo "APP_SRC=$PWD/$app" >> "$GITHUB_ENV"
+          echo "Built $app"
