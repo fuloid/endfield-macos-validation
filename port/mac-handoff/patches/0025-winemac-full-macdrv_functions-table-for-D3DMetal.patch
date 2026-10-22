@@ -11,20 +11,14 @@ by WineForge): display-device init is a no-op, the window functions call the
 matching NtUser* functions, and OnMainThread runs a block on the main thread. The
 registry functions are not implemented (open/query report "not found", set/create
 are refused), so D3DMetal uses its defaults.
+The C-side block parameter is opaque (the same pointer ABI); no block literals
+or dispatch headers are needed in window.c.
 ---
 diff --git a/dlls/winemac.drv/window.c b/dlls/winemac.drv/window.c
-index e8d6e9f..6a9cc79 100644
+index e8d6e9f..b7c9c3f 100644
 --- a/dlls/winemac.drv/window.c
 +++ b/dlls/winemac.drv/window.c
-@@ -29,6 +29,7 @@
- #include "macdrv.h"
- 
- #include <IOKit/pwr_mgt/IOPMLib.h>
-+#include <dispatch/dispatch.h>
- 
- WINE_DEFAULT_DEBUG_CHANNEL(macdrv);
- 
-@@ -211,31 +212,50 @@ void release_win_data(struct macdrv_win_data *data)
+@@ -211,31 +211,50 @@ void release_win_data(struct macdrv_win_data *data)
  /***********************************************************************
   *              macdrv_functions
   *
@@ -91,7 +85,7 @@ index e8d6e9f..6a9cc79 100644
      if (!(data = get_win_data(hwnd)) && (toplevel = NtUserGetAncestor(hwnd, GA_ROOT)) && toplevel != hwnd)
          data = get_win_data(toplevel);
      if (data)
-@@ -243,23 +263,34 @@ static struct macdrv_win_data *dxmt_get_win_data(HWND hwnd)
+@@ -243,23 +262,34 @@ static struct macdrv_win_data *dxmt_get_win_data(HWND hwnd)
          view = data->client_view;
          if (!view && data->cocoa_window) view = macdrv_get_window_content_view(data->cocoa_window);
          ret->cocoa_window = data->cocoa_window;
@@ -133,7 +127,7 @@ index e8d6e9f..6a9cc79 100644
  {
      if (!view)
      {
-@@ -269,32 +300,173 @@ static WineMetalView *dxmt_view_create_metal_view(WineContentView *view, MTLDevi
+@@ -269,32 +299,173 @@ static WineMetalView *dxmt_view_create_metal_view(WineContentView *view, MTLDevi
      return macdrv_view_create_metal_view(view, device);
  }
  
@@ -147,9 +141,9 @@ index e8d6e9f..6a9cc79 100644
 +    return macdrv_get_cocoa_window(hwnd, require_on_screen);
 +}
 +
-+extern void OnMainThread(dispatch_block_t block);
++extern void OnMainThread(void * block);
 +
-+static void legacy_on_main_thread(dispatch_block_t block)
++static void legacy_on_main_thread(void * block)
 +{
 +    OnMainThread(block);
 +}
@@ -263,7 +257,7 @@ index e8d6e9f..6a9cc79 100644
      CAMetalLayer *(*macdrv_view_get_metal_layer)(WineMetalView *view);
      void (*macdrv_view_release_metal_view)(WineMetalView *view);
 -    void *on_main_thread;
-+    void (*on_main_thread)(dispatch_block_t block);
++    void (*on_main_thread)(void * block);
 +    LSTATUS (WINAPI *RegQueryValueExA)(HKEY, LPCSTR, LPDWORD, LPDWORD, BYTE *, LPDWORD);
 +    LSTATUS (WINAPI *RegSetValueExA)(HKEY, LPCSTR, DWORD, DWORD, const BYTE *, DWORD);
 +    LSTATUS (WINAPI *RegOpenKeyExA)(HKEY, LPCSTR, DWORD, DWORD, HKEY *);
