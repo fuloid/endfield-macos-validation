@@ -6,7 +6,8 @@ import type { DiagnosticResult, EngineEvent, SettingsResult } from "./shared.ts"
 export type Phase = "boot" | "checking" | "setup" | "ready" | "running" | "failure";
 export type Action = "none" | "status" | "setup" | "gryphlink" | "direct";
 export type Modal = "profile" | "none" | "settings" | "failure" | "uninstall1" | "uninstall2" | "reset1" | "reset2";
-export type Graphics = "dxmt" | "wined3d" | "vulkan";
+export type Graphics = "dxmt" | "d3dmetal" | "wined3d" | "vulkan";
+export type HudLog = "off" | "1s" | "frame";
 export type Launch = "none" | "gryphlink" | "direct";
 export type SetupStep = "none" | "rosetta" | "prefix" | "gryphlink";
 export type StepState = "pending" | "active" | "done" | "failed";
@@ -63,6 +64,8 @@ export interface Model {
   readonly mvkArgumentBuffers: boolean;
   readonly wined3dCsmt: boolean;
   readonly metalValidation: boolean;
+  readonly metalHud: boolean;
+  readonly hudLog: HudLog;
   readonly hideWineVersions: boolean;
   readonly discordPresence: boolean;
   readonly settingsSaved: boolean;
@@ -125,6 +128,11 @@ export type Msg =
   | { readonly kind: "dxmt" }
   | { readonly kind: "wined3d" }
   | { readonly kind: "vulkan" }
+  | { readonly kind: "d3dmetal" }
+  | { readonly kind: "toggle_metal_hud" }
+  | { readonly kind: "hud_log_off" }
+  | { readonly kind: "hud_log_1s" }
+  | { readonly kind: "hud_log_frame" }
   | { readonly kind: "uninstall_ask" }
   | { readonly kind: "uninstall_next" }
   | { readonly kind: "uninstall_confirm" }
@@ -178,7 +186,7 @@ export function initialModel(): Model {
     errorMessage: asciiBytes(""), exitCode: -1, gameExitCode: -1, launchFailed: false,
     diagnosticObserved: asciiBytes(""), diagnosticSource: asciiBytes(""), diagnosticExplanation: asciiBytes(""), diagnosticNextStep: asciiBytes(""),
     argsEdit: { text: asciiBytes(""), selection: { anchor: 0, focus: 0 }, composition: null },
-    debugLogging: false, exceptionTrace: false, logCapEdit: caretAtEnd(asciiBytes("1024")), rosettaAvx: true, stockMoltenvk: false, mvkArgumentBuffers: true, wined3dCsmt: true, metalValidation: false, hideWineVersions: false, discordPresence: false, settingsSaved: true, settingsBusy: false, controlBusy: false, keepGameOnReset: true,
+    debugLogging: false, exceptionTrace: false, logCapEdit: caretAtEnd(asciiBytes("1024")), rosettaAvx: true, stockMoltenvk: false, mvkArgumentBuffers: true, wined3dCsmt: true, metalValidation: false, metalHud: false, hudLog: "off", hideWineVersions: false, discordPresence: false, settingsSaved: true, settingsBusy: false, controlBusy: false, keepGameOnReset: true,
     wineVersion: asciiBytes(""), gryphlinkVersion: asciiBytes(""),
     // Image ids of the static icons declared in app.json `assets.images`.
     gryphlinkIcon: 1, endfieldIcon: 2,
@@ -215,6 +223,7 @@ export function locationLabel(model: Model): Uint8Array {
 export function modeLabel(model: Model): Uint8Array {
   if (model.graphics === "wined3d") return asciiBytes("WineD3D");
   if (model.graphics === "vulkan") return asciiBytes("Vulkan");
+  if (model.graphics === "d3dmetal") return asciiBytes("D3DMetal");
   return asciiBytes("DXMT");
 }
 export function hasLog(model: Model): boolean {
@@ -447,6 +456,11 @@ export function update(model: Model, msg: Msg): Model | [Model, Cmd<Msg>] {
     case "dxmt": return { ...model, graphics: "dxmt", settingsSaved: false };
     case "wined3d": return { ...model, graphics: "wined3d", settingsSaved: false };
     case "vulkan": return { ...model, graphics: "vulkan", settingsSaved: false };
+    case "d3dmetal": return { ...model, graphics: "d3dmetal", settingsSaved: false };
+    case "toggle_metal_hud": return { ...model, metalHud: !model.metalHud, settingsSaved: false };
+    case "hud_log_off": return { ...model, hudLog: "off", settingsSaved: false };
+    case "hud_log_1s": return { ...model, hudLog: "1s", settingsSaved: false };
+    case "hud_log_frame": return { ...model, hudLog: "frame", settingsSaved: false };
     case "uninstall_ask": return model.gameReady && !model.wineRunning && model.action === "none" && !model.controlBusy ? { ...model, modal: "uninstall1" } : model;
     case "uninstall_next": return { ...model, modal: "uninstall2" };
     case "uninstall_confirm": if (model.controlBusy || model.modal !== "uninstall2" || model.wineRunning || model.action !== "none") return model; return [{ ...model, modal: "none", controlBusy: true }, Cmd.spawn([model.runner, model.script, asciiBytes("uninstall-game"), asciiBytes("--yes")], { key: "control", line: "control_line", exit: "control_exited", err: "control_failed" })];
@@ -468,7 +482,7 @@ export function update(model: Model, msg: Msg): Model | [Model, Cmd<Msg>] {
       const size = text.length;
       if (!(size >= 0) || size > 2048) return model;
       const end = Math.trunc(size);
-      return { ...model, graphics: sameAscii(value.graphics, asciiBytes("vulkan")) ? "vulkan" : sameAscii(value.graphics, asciiBytes("wined3d")) ? "wined3d" : "dxmt", argsEdit: { text, selection: { anchor: end, focus: end }, composition: null }, debugLogging: value.debugLogging, exceptionTrace: value.exceptionTrace, logCapEdit: caretAtEnd(value.logMaxMb), rosettaAvx: value.rosettaAvx, stockMoltenvk: value.stockMoltenvk, mvkArgumentBuffers: value.mvkArgumentBuffers, wined3dCsmt: value.wined3dCsmt, metalValidation: value.metalValidation, hideWineVersions: value.hideWineVersions, discordPresence: value.discordPresence, settingsSaved: true };
+      return { ...model, graphics: sameAscii(value.graphics, asciiBytes("vulkan")) ? "vulkan" : sameAscii(value.graphics, asciiBytes("wined3d")) ? "wined3d" : sameAscii(value.graphics, asciiBytes("d3dmetal")) ? "d3dmetal" : "dxmt", argsEdit: { text, selection: { anchor: end, focus: end }, composition: null }, debugLogging: value.debugLogging, exceptionTrace: value.exceptionTrace, logCapEdit: caretAtEnd(value.logMaxMb), rosettaAvx: value.rosettaAvx, stockMoltenvk: value.stockMoltenvk, mvkArgumentBuffers: value.mvkArgumentBuffers, wined3dCsmt: value.wined3dCsmt, metalValidation: value.metalValidation, metalHud: value.metalHud, hudLog: sameAscii(value.metalHudLog, asciiBytes("1s")) ? "1s" : sameAscii(value.metalHudLog, asciiBytes("frame")) ? "frame" : "off", hideWineVersions: value.hideWineVersions, discordPresence: value.discordPresence, settingsSaved: true };
     }
     // The service clamps the log cap to 50-5120 MB; show the value it stored.
     case "settings_saved": return { ...model, settingsSaved: true, settingsBusy: false, logCapEdit: caretAtEnd(msg.result.logMaxMb) };
@@ -490,7 +504,7 @@ export function update(model: Model, msg: Msg): Model | [Model, Cmd<Msg>] {
     case "toggle_metal_validation": return { ...model, metalValidation: !model.metalValidation, settingsSaved: false };
     case "toggle_hide_wine_versions": return { ...model, hideWineVersions: !model.hideWineVersions, settingsSaved: false };
     case "toggle_discord_presence": return { ...model, discordPresence: !model.discordPresence, settingsSaved: false };
-    case "save_settings": if (model.settingsBusy) return model; return [{ ...model, settingsBusy: true }, settingsSave({ prefixPath: model.prefixPath, graphics: asciiBytes(model.graphics), extraArgs: model.argsEdit.text, debugLogging: model.debugLogging, exceptionTrace: model.exceptionTrace, logMaxMb: model.logCapEdit.text, rosettaAvx: model.rosettaAvx, stockMoltenvk: model.stockMoltenvk, mvkArgumentBuffers: model.mvkArgumentBuffers, wined3dCsmt: model.wined3dCsmt, metalValidation: model.metalValidation, hideWineVersions: model.hideWineVersions, discordPresence: model.discordPresence }, { ok: "settings_saved", err: "settings_failed" })];
+    case "save_settings": if (model.settingsBusy) return model; return [{ ...model, settingsBusy: true }, settingsSave({ prefixPath: model.prefixPath, graphics: asciiBytes(model.graphics), extraArgs: model.argsEdit.text, debugLogging: model.debugLogging, exceptionTrace: model.exceptionTrace, logMaxMb: model.logCapEdit.text, rosettaAvx: model.rosettaAvx, stockMoltenvk: model.stockMoltenvk, mvkArgumentBuffers: model.mvkArgumentBuffers, wined3dCsmt: model.wined3dCsmt, metalValidation: model.metalValidation, metalHud: model.metalHud, metalHudLog: asciiBytes(model.hudLog), hideWineVersions: model.hideWineVersions, discordPresence: model.discordPresence }, { ok: "settings_saved", err: "settings_failed" })];
     case "show_prefix": return [model, Cmd.revealPath(model.prefixPath)];
     case "show_launcher": return [model, Cmd.revealPath(model.launcherPath)];
     case "show_game": return [model, Cmd.revealPath(model.gamePath)];

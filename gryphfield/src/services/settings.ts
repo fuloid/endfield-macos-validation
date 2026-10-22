@@ -23,7 +23,7 @@ function logMaxMb(value: unknown): number {
 }
 function result(config: Record<string, unknown>): SettingsResult {
   return {
-    graphics: encode(["dxmt", "wined3d", "vulkan"].includes(String(config.graphics)) ? String(config.graphics) : "dxmt"),
+    graphics: encode(["dxmt", "d3dmetal", "wined3d", "vulkan"].includes(String(config.graphics)) ? String(config.graphics) : "dxmt"),
     extraArgs: encode(typeof config.extra_args === "string" ? config.extra_args.slice(0, 2048) : ""),
     debugLogging: config.debug_logging === true,
     exceptionTrace: config.exception_trace === true,
@@ -35,6 +35,8 @@ function result(config: Record<string, unknown>): SettingsResult {
     metalValidation: config.metal_validation === true,
     hideWineVersions: config.hide_wine_versions === true,
     discordPresence: config.discord_presence === true,
+    metalHud: config.metal_hud === true,
+    metalHudLog: encode(["1s", "frame"].includes(String(config.metal_hud_log)) ? String(config.metal_hud_log) : "off"),
   };
 }
 export function load(request: SettingsRequest): SettingsResult {
@@ -61,7 +63,7 @@ export function saveLocation(request: LocationWrite): SettingsResult {
 export function save(request: SettingsWrite): SettingsResult {
   const path = pathFor(request.prefixPath);
   const graphics = decode(request.graphics);
-  if (!["dxmt", "wined3d", "vulkan"].includes(graphics)) throw { kind: "INVALID_MODE", message: "Invalid graphics mode" };
+  if (!["dxmt", "d3dmetal", "wined3d", "vulkan"].includes(graphics)) throw { kind: "INVALID_MODE", message: "Invalid graphics mode" };
   const config = rawConfig(path);
   config.graphics = graphics;
   config.extra_args = decode(request.extraArgs);
@@ -75,6 +77,9 @@ export function save(request: SettingsWrite): SettingsResult {
   config.metal_validation = request.metalValidation;
   config.hide_wine_versions = request.hideWineVersions;
   config.discord_presence = request.discordPresence;
+  config.metal_hud = request.metalHud;
+  const hudLog = decode(request.metalHudLog);
+  config.metal_hud_log = ["1s", "frame"].includes(hudLog) ? hudLog : "off";
   write(path, config);
   return result(config);
 }

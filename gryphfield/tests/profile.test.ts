@@ -10,6 +10,25 @@ const button = (s: NativeSnapshot, name: string) => findWidget(s, { role: "butto
 const note = (s: NativeSnapshot) => text(s.model.profileNote);
 const spawn = (s: NativeSnapshot) => s.effects.spawns.find(p => text(p.argv[2]) === "profile-cpu")!;
 
+// Physical clicks require the button to be inside the Settings scroll viewport.
+// Use the same wheel interaction a user needs, including at the SDK's 640x480 default.
+async function scrollTo(app: NativeApp, s: NativeSnapshot, name: string) {
+  for (let i = 0; i < 40; i++) {
+    const target = s.widgets.find(w => w.name === name)!;
+    const viewport = s.widgets.find(w => w.name === "Settings content")!;
+    assert.ok(target && viewport, `Settings contains ${name} and its scroll viewport`);
+    const b = target.bounds, v = viewport.bounds;
+    if (b.y >= v.y && b.y + b.height <= v.y + v.height) return s;
+    s = await app.wheel(viewport, b.y < v.y ? -80 : 80);
+  }
+  assert.fail(`${name} could not be scrolled into view`);
+}
+
+async function capture(app: NativeApp, s: NativeSnapshot) {
+  s = await scrollTo(app, s, "Capture CPU profile...");
+  return app.click(button(s, "Capture CPU profile..."));
+}
+
 // Encode service fixtures at the SDK wire boundary. The real JSONL parser is
 // exercised too; the native test executor never launches the engine or game.
 function eventWire(raw: object): Uint8Array {
@@ -35,7 +54,7 @@ async function line(app: NativeApp, key: string, raw: object) {
 async function start(app: NativeApp) {
   let s = await app.snapshot();
   s = await app.click(button(s, "Settings"));
-  s = await app.click(button(s, "Capture CPU profile..."));
+  s = await capture(app, s);
   return app.click(button(s, "Start"));
 }
 
@@ -44,6 +63,49 @@ async function settle(app: NativeApp, s: NativeSnapshot) {
   assert.ok(timer, "exit leaves a grace period for delayed parser replies");
   return app.fireTimer(timer.key);
 }
+
+for (const [width, height] of [[640, 480], [820, 580], [900, 620]]) {
+  test(`Settings controls fit and CPU capture is reachable at ${width}x${height}`, async () => {
+    await using app = await NativeApp.start({ width, height });
+    let s = await app.click(button(await app.snapshot(), "Settings"));
+    const viewport = s.widgets.find(w => w.name === "Settings content")!;
+    assert.ok(viewport.bounds.height > 100, "Settings reserves a usable scroll area");
+    for (const name of ["Close", "Save settings"]) {
+      const b = button(s, name).bounds;
+      assert.ok(b.x >= 0 && b.y >= 0 && b.x + b.width <= width && b.y + b.height <= height,
+        `${name} stays inside the window`);
+    }
+    s = await capture(app, s);
+    s = await app.click(button(s, "Cancel"));
+    await app.click(button(s, "Close"));
+    await app.verifyReplay();
+  });
+}
+
+test("D3DMetal and HUD log controls preserve independent settings drafts", async () => {
+  await using app = await NativeApp.start();
+  let s = await app.click(button(await app.snapshot(), "Settings"));
+  s = await app.click(s.widgets.find(w => w.name === "D3DMetal")!);
+  assert.equal(s.model.graphics, "d3dmetal");
+  const name = "Show Apple's Metal performance HUD (FPS, frame and GPU time)";
+  s = await scrollTo(app, s, name);
+  s = await app.action(s.widgets.find(w => w.name === name)!, "toggle");
+  assert.equal(s.model.metalHud, true);
+  assert.equal(s.model.hudLog, "off");
+  s = await scrollTo(app, s, "Every second");
+  s = await app.click(s.widgets.find(w => w.name === "Every second")!);
+  assert.equal(s.model.hudLog, "1s");
+  s = await scrollTo(app, s, name);
+  s = await app.action(s.widgets.find(w => w.name === name)!, "toggle");
+  assert.equal(s.model.metalHud, false);
+  assert.equal(s.model.hudLog, "1s");
+  s = await scrollTo(app, s, "Every frame");
+  s = await app.click(s.widgets.find(w => w.name === "Every frame")!);
+  assert.equal(s.model.hudLog, "frame");
+  s = await app.click(button(s, "Save settings"));
+  assert.ok(s.effects.requests.some(r => r.name === "settings.save"));
+  await app.verifyReplay();
+});
 
 test("confirmation requires Start, Cancel preserves settings, and duplicate capture is disabled", async () => {
   await using app = await NativeApp.start({ width: 1000, height: 1100 });
@@ -55,14 +117,14 @@ test("confirmation requires Start, Cancel preserves settings, and duplicate capt
   s = await app.action(toggle, "toggle");
   assert.equal(s.model.settingsSaved, false);
   const draft = s.model.debugLogging;
-  s = await app.click(button(s, "Capture CPU profile..."));
+  s = await capture(app, s);
   assert.equal(s.effects.spawns.length, 0);
   assert.ok(s.widgets.some(w => w.text.includes("5 seconds") && w.text.includes("10 seconds")));
   assert.ok(s.widgets.some(w => w.text.includes("macOS may prevent")));
   s = await app.click(button(s, "Cancel"));
   assert.equal(s.model.debugLogging, draft);
   assert.equal(s.model.settingsSaved, false);
-  s = await app.click(button(s, "Capture CPU profile..."));
+  s = await capture(app, s);
   s = await app.click(button(s, "Start"));
   assert.equal(s.model.profileBusy, true);
   assert.ok(spawn(s));
@@ -128,13 +190,14 @@ test("capture has its own process key and background settings loads preserve edi
   const toggle = s.widgets.find(w => w.name.startsWith("Detailed Wine logging"))!;
   s = await app.action(toggle, "toggle");
   const draft = s.model.debugLogging;
-  s = await app.click(button(s, "Capture CPU profile..."));
+  s = await capture(app, s);
   s = await app.click(button(s, "Start"));
   assert.notEqual(spawn(s).key, main.key);
   assert.equal(s.effects.spawns.length, 2);
   const settings = serviceConcat([
     serviceBytes(bytes("dxmt")), serviceBytes(bytes("")), serviceBoolBytes(false), serviceBoolBytes(false),
-    serviceBytes(bytes("1024")), ...[true, false, true, true, false, false, false].map(serviceBoolBytes),
+    serviceBytes(bytes("1024")), ...[true, false, true, true, false, false, false, false].map(serviceBoolBytes),
+    serviceBytes(bytes("off")),
   ]);
   s = await app.respond(load.key, settings);
   assert.equal(s.model.debugLogging, draft);

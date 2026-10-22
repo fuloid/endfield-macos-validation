@@ -60,6 +60,8 @@ export type SettingsWrite = {
   readonly metalValidation: boolean;
   readonly hideWineVersions: boolean;
   readonly discordPresence: boolean;
+  readonly metalHud: boolean;
+  readonly metalHudLog: Uint8Array;
 };
 export type LocationWrite = {
   readonly prefixPath: Uint8Array;
@@ -78,4 +80,6 @@ export type SettingsResult = {
   readonly metalValidation: boolean;
   readonly hideWineVersions: boolean;
   readonly discordPresence: boolean;
+  readonly metalHud: boolean;
+  readonly metalHudLog: Uint8Array;
 };
