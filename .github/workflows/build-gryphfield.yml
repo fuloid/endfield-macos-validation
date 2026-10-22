@@ -156,6 +156,7 @@ jobs:
             ${{ runner.temp }}/cpu-profile/*.jsonl
             ${{ runner.temp }}/cpu-profile/*.err
             ${{ runner.temp }}/cpu-profile/*.log
+            ${{ runner.temp }}/cpu-profile/*.txt
             ${{ runner.temp }}/cpu-profile/logs
           retention-days: 7
           if-no-files-found: warn

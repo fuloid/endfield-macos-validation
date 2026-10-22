@@ -128,7 +128,19 @@ try:
            stdout=open(out / "wineboot.log", "w"), stderr=sp.STDOUT, check=True, timeout=600)
     terminal("no-game", start("no-game"), "PROFILE_TARGET")
     launch("success")
-    until(lambda: bool(target()))
+    try:
+        until(lambda: bool(target()))
+    except AssertionError:
+        # Evidence for the report: what macOS actually shows for the fixture process.
+        with open(out / "target-diagnostics.txt", "w") as d:
+            sp.run(["/usr/bin/pgrep", "-u", str(os.getuid()), "-if", r"Endfield\.exe"], stdout=d, stderr=sp.STDOUT)
+            sp.run(["/bin/ps", "-axww", "-o", "pid,ppid,uid,comm,args"], stdout=d, stderr=sp.STDOUT)
+            for pid in sp.run(["/usr/bin/pgrep", "-u", str(os.getuid()), "-if", r"Endfield\.exe"],
+                              capture_output=True, text=True).stdout.split():
+                d.write("\n--- ps eww %s\n" % pid)
+                d.flush()
+                sp.run(["/bin/ps", "eww", "-p", pid, "-o", "command="], stdout=d, stderr=sp.STDOUT)
+        raise
     native_pid = int(target())
     assert sp.check_output(["/bin/ps", "-p", str(native_pid), "-o", "uid="], text=True).strip() == str(os.getuid())
     before = reports()
