@@ -140,6 +140,22 @@ try:
                 d.write("\n--- ps eww %s\n" % pid)
                 d.flush()
                 sp.run(["/bin/ps", "eww", "-p", pid, "-o", "command="], stdout=d, stderr=sp.STDOUT)
+                d.write("\n--- lsof -a -p %s -d txt -Fn\n" % pid)
+                d.flush()
+                sp.run(["/usr/sbin/lsof", "-a", "-p", pid, "-d", "txt", "-Fn"], stdout=d, stderr=sp.STDOUT)
+                lines = sp.run(["/usr/sbin/lsof", "-a", "-p", pid, "-d", "txt", "-Fn"],
+                               capture_output=True, text=True).stdout.splitlines()
+                for path in [l[1:] for l in lines if l.startswith("n")][:3]:
+                    d.write("\n--- stat -L %s\n" % path)
+                    d.flush()
+                    sp.run(["/usr/bin/stat", "-L", "-f", "%d:%i", path], stdout=d, stderr=sp.STDOUT)
+            d.write("\n--- stat loaders\n")
+            d.flush()
+            for tree in ("wine", "wine-dxmt"):
+                for f in sorted((engine / tree / "bin").glob("*")):
+                    d.write(str(f) + " ")
+                    d.flush()
+                    sp.run(["/usr/bin/stat", "-L", "-f", "%d:%i", str(f)], stdout=d, stderr=sp.STDOUT)
         raise
     native_pid = int(target())
     assert sp.check_output(["/bin/ps", "-p", str(native_pid), "-o", "uid="], text=True).strip() == str(os.getuid())
