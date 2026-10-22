@@ -22,6 +22,8 @@ PREFIX="$SUPPORT/prefix"
 CONFIG="$SUPPORT/config.json"
 WATCH="$ENGINE/tools/gryphfield-watch.exe"
 DIRECT="$ENGINE/tools/direct-launch.exe"
+DISCORD_HELPER="$ENGINE/bin/gryphfield-discord"
+DISCORD_BRIDGE="$ENGINE/tools/discord-bridge.exe"
 PREFIX_MARK="$PREFIX/.gryphfield-prefix"
 mkdir -p "$SUPPORT" "$LOGS"
 ENGINE_LOG="$LOGS/engine.log"
@@ -324,6 +326,43 @@ cmd_setup() {
     finish_ok
 }
 
+# Discord Rich Presence (Settings, config "discord_presence"): gryphfield-discord (native) talks to
+# Discord's Unix socket; discord-bridge.exe owns the game's pipe \\.\pipe\discord-ipc-0 in Wine and
+# relays to it over 127.0.0.1 with a per-launch token. Started before the game, whose SDK looks for
+# the pipe at startup; "playing" while Endfield runs gives a plain activity until the game sets its own.
+DISCORD_HELPER_PID="" DISCORD_BRIDGE_PID=""
+discord_start() {   # [force]
+    local dir word port
+    [ "${1:-}" = force ] || [ "$(cfg discord_presence false)" = true ] || return 0
+    if [ ! -x "$DISCORD_HELPER" ] || [ ! -f "$DISCORD_BRIDGE" ]; then say "Discord presence: helpers missing"; return 0; fi
+    dir="$(mktemp -d "${TMPDIR:-/tmp}/gryphfield-discord.XXXXXX")" || return 0
+    mkfifo "$dir/in" "$dir/out" || { rm -rf "$dir"; return 0; }
+    GRYPHFIELD_DISCORD_TOKEN="$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')"
+    export GRYPHFIELD_DISCORD_TOKEN
+    "$DISCORD_HELPER" < "$dir/in" > "$dir/out" 2>> "${WLOG:-$ENGINE_LOG}" &
+    DISCORD_HELPER_PID=$!
+    exec 7> "$dir/in" 8< "$dir/out"   # fd 7 is the helper's stdin: closing it ends the helper
+    rm -rf "$dir"
+    if ! IFS=' ' read -r -t 5 -u 8 word port || [ "$word" != port ]; then
+        say "Discord presence: the helper did not start"
+        discord_stop
+        return 0
+    fi
+    # Wine processes must not inherit fds 7/8: a lingering wineserver would keep the helper alive
+    "$WINE" "$DISCORD_BRIDGE" "$port" >> "${WLOG:-$ENGINE_LOG}" 2>&1 7>&- 8<&- &
+    DISCORD_BRIDGE_PID=$!
+    unset GRYPHFIELD_DISCORD_TOKEN
+    say "Discord presence: on (helper port $port)"
+}
+discord_send() { [ -n "$DISCORD_HELPER_PID" ] && printf '%s\n' "$1" >&7 2>/dev/null; return 0; }
+discord_stop() {
+    [ -n "$DISCORD_HELPER_PID" ] || return 0
+    exec 7>&- 8<&-   # end of input: the helper clears the fallback activity and exits
+    [ -z "$DISCORD_BRIDGE_PID" ] || wait_for_exit 0 "$DISCORD_BRIDGE_PID"
+    wait_for_exit 3 "$DISCORD_HELPER_PID"
+    DISCORD_HELPER_PID="" DISCORD_BRIDGE_PID=""
+}
+
 handle_event() {   # one watcher line
     local line="${1%$'\r'}"
     case "$line" in
@@ -331,13 +370,14 @@ handle_event() {   # one watcher line
         *) [ -n "$line" ] && printf '%s\n' "$line" >> "$WLOG"; return ;;
     esac
     case "$line" in
-        *'"event":"game_started"'*) GAME_STARTED=1 ;;
+        *'"event":"game_started"'*) GAME_STARTED=1; discord_send "playing $(date +%s)" ;;
         *'"event":"unity_stable"'*) UNITY_STABLE=1 ;;
         *'"event":"failed"'*)
             FAILED=1
             FAIL_REASON="$(printf '%s' "$line" | sed -n 's/.*"reason":"\([^"]*\)".*/\1/p')"
             line="${line%?},\"log\":$(jstr "$WLOG")}" ;;
         *'"event":"game_exited"'*)
+            discord_send idle
             EXIT_CODE="$(printf '%s' "$line" | sed -n 's/.*"exit_code":\([0-9-]*\).*/\1/p')"
             line="${line%?},\"log\":$(jstr "$WLOG")}" ;;
     esac
@@ -384,19 +424,20 @@ cmd_run() {   # gryphlink|direct [--graphics MODE] [-- game args]
     say "run-$kind: graphics $MODE, log $WLOG"
 
     GAME_STARTED=0 UNITY_STABLE=0 FAILED=0 FAIL_REASON="" EXIT_CODE=""
+    discord_start
     fifo="$(mktemp -u "${TMPDIR:-/tmp}/gryphfield.XXXXXX")"
     mkfifo "$fifo" || fail INTERNAL "Could not create a pipe for launch events."
     if [ "$kind" = gryphlink ]; then
         start_timeout=180
-        (cd "$GL" && exec "$WINE" "$GL_WIN\\Launcher.exe") >> "$WLOG" 2>&1 &
+        (cd "$GL" && exec "$WINE" "$GL_WIN\\Launcher.exe") >> "$WLOG" 2>&1 7>&- 8<&- &
         [ ${#EXTRA[@]} -eq 0 ] || say "extra game arguments are ignored for GRYPHLINK; it starts the game itself"
     else
         start_timeout=120
         "$WINE" "$DIRECT" --launcher "$GL_WIN\\$version\\Games.exe" --game-dir "$GAME_WIN" \
-            -- "${GAME_ARGS[@]}" ${EXTRA[@]+"${EXTRA[@]}"} >> "$WLOG" 2>&1 &
+            -- "${GAME_ARGS[@]}" ${EXTRA[@]+"${EXTRA[@]}"} >> "$WLOG" 2>&1 7>&- 8<&- &
     fi
     main_pid=$!
-    "$WINE" "$WATCH" "$kind" --start-timeout "$start_timeout" > "$fifo" 2>> "$WLOG" &
+    "$WINE" "$WATCH" "$kind" --start-timeout "$start_timeout" > "$fifo" 2>> "$WLOG" 7>&- 8<&- &
     watch_pid=$!
     exec 3< "$fifo"
     rm -f "$fifo"
@@ -422,6 +463,7 @@ cmd_run() {   # gryphlink|direct [--graphics MODE] [-- game args]
     wait "$watch_pid" 2>/dev/null
     if [ "$FAILED" = 1 ] && kill -0 "$main_pid" 2>/dev/null; then kill "$main_pid" 2>/dev/null; fi
     wait_for_exit 20 "$main_pid"
+    discord_stop
     trim_log "$WLOG" "$LOG_CAP_MB"
     say "run-$kind ended: game_started=$GAME_STARTED unity_stable=$UNITY_STABLE exit_code=${EXIT_CODE:-none}"
 
@@ -462,6 +504,24 @@ cmd_restart() {   # restart the Wine session (not the game)
     prefix_ready || fail NOT_READY "Setup is not complete. Run setup first."
     use_wine wined3d
     run_timeout 300 "$WINE" wineboot >> "$ENGINE_LOG" 2>&1 || fail RESTART_FAILED "Starting the Wine session failed. See $ENGINE_LOG."
+    finish_ok
+}
+
+cmd_discord_selftest() {   # probe.exe: the Discord helpers against a test socket (engine/ci-smoke.sh)
+    local probe="$1" rc
+    use_wine dxmt
+    WLOG="$LOGS/discord-selftest.log"
+    : > "$WLOG"
+    discord_start force
+    [ -n "$DISCORD_BRIDGE_PID" ] || fail DISCORD_FAILED "The Discord helpers did not start. See $WLOG."
+    discord_send "playing $(date +%s)"
+    sleep 4   # the fallback activity
+    run_timeout 60 "$WINE" "$probe" >> "$WLOG" 2>&1 7>&- 8<&-
+    rc=$?
+    sleep 1
+    discord_send idle
+    discord_stop
+    emit "{\"event\":\"discord_selftest\",\"probe_exit\":$rc,\"log\":$(jstr "$WLOG")}"
     finish_ok
 }
 
@@ -586,5 +646,6 @@ case "$command" in
     choose-location) cmd_choose_location ;;
     check-location) cmd_check_location "$@" ;;
     _trim-log) trim_log "$1" "$2"; finish_ok ;;   # for engine/ci-smoke.sh
+    _discord-selftest) cmd_discord_selftest "$@" ;;   # for engine/ci-smoke.sh
     *) fail UNKNOWN_COMMAND "Unknown command: $command" ;;
 esac

@@ -2,10 +2,12 @@
 # CI smoke test of an assembled engine on the GitHub macOS VM (no game files are available there):
 # status -> setup -> run-gryphlink until GRYPHLINK starts, in wined3d mode (required) and DXMT
 # mode (informational; the VM's paravirtual Metal may not support it), then the missing-game path.
-#   bash engine/ci-smoke.sh <engine-dir> <output-dir>
+#   bash engine/ci-smoke.sh <engine-dir> <output-dir> [test-tools-dir with discord-pipe-probe.exe]
 set -uo pipefail
 ENGINE="${1:?engine dir}"
 OUT="${2:?output dir}"
+TEST_TOOLS="${3:-}"
+REPO="$(cd "$(dirname "$0")/.." && pwd)"
 mkdir -p "$OUT"
 export GRYPHFIELD_HOME="$OUT/home" GRYPHFIELD_LOGS="$OUT/logs"
 E="$ENGINE/bin/gryphfield-engine"
@@ -103,6 +105,26 @@ printf '{"moltenvk_stock":true,"mvk_argument_buffers":false,"wined3d_csmt":false
 launch wined3d 0 diagnostics
 check 'diagnostics settings reach the Wine log header'     grep -q 'csmt=0x0, diagnostics: stock-moltenvk no-argument-buffers no-csmt metal-validation' "$OUT/wine-diagnostics.log"
 check 'hide_wine_versions reaches the Wine environment'     grep -q 'CX_HIDE_BUILTIN_VERSION_RESOURCES=1' "$OUT/wine-diagnostics.log"
+# Discord Rich Presence against a fake Discord socket: the fallback activity while the game "runs",
+# then a game-side client (discord-pipe-probe.exe) relayed through \\.\pipe\discord-ipc-0
+if [ -n "$TEST_TOOLS" ] && [ -f "$TEST_TOOLS/discord-pipe-probe.exe" ]; then
+    /usr/bin/python3 -I "$REPO/tools/discord-pipe-probe/fake-discord.py" "$OUT/ipc" "$OUT/ipc.log" 2> "$OUT/fake-discord.err" &
+    fake_pid=$!
+    sleep 1
+    GRYPHFIELD_DISCORD_IPC_DIR="$OUT/ipc" /bin/bash "$E" _discord-selftest "$TEST_TOOLS/discord-pipe-probe.exe" \
+        > "$OUT/discord-selftest.jsonl" 2> "$OUT/discord-selftest.err"
+    kill "$fake_pid" 2>/dev/null
+    cat "$OUT/discord-selftest.jsonl" "$OUT/ipc.log" 2>/dev/null
+    cp "$OUT/logs/discord-selftest.log" "$OUT/" 2>/dev/null
+    check 'discord: selftest finishes' done_ok "$OUT/discord-selftest.jsonl"
+    check 'discord: fallback handshake uses the Endfield application' grep -q '"client_id": "1461154307171811401"' "$OUT/ipc.log"
+    check 'discord: fallback sets an activity with a start time' grep -q '"cmd": "SET_ACTIVITY".*"timestamps"' "$OUT/ipc.log"
+    check 'discord: the game handshake is relayed' grep -q '"client_id": "1234567890"' "$OUT/ipc.log"
+    check "discord: the game's activity is relayed" grep -q '"state": "pipe probe"' "$OUT/ipc.log"
+    check 'discord: the game side gets both replies' grep -q '"probe_exit":0' "$OUT/discord-selftest.jsonl"
+else
+    note '- INFO discord: no discord-pipe-probe.exe given; selftest skipped'
+fi
 check 'exception_trace adds the full +seh trace' grep -q 'WINEDEBUG=fixme-all,err+all,warn+seh,+seh, ' "$OUT/wine-diagnostics.log"
 check 'log_max_mb below 50 is raised to 50' grep -q '; log limit 50 MB$' "$OUT/wine-diagnostics.log"
 # Log limit: a 65 MB log with a 50 MB limit keeps its first and newest lines and drops to about half

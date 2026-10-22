@@ -20,7 +20,7 @@ Requires Apple Silicon, macOS 15 or later and Rosetta 2. The app is signed ad ho
 |---|---|
 | `port/mac-handoff/patches/` | Wine patches applied to Wine 11.19 (`455e3509`), in order. `moltenvk/` holds the MoltenVK 1.4.2 patch set. |
 | `port/mac-handoff/` | `build-mac.sh`, provenance, licenses, `SHA256SUMS` and per-patch notes in `MAC_HANDOFF.md`. |
-| `engine/` | `gryphfield-engine` (the shell backend the UI calls), `assemble.sh` (builds the app's engine directory) and the Windows helpers `direct-launch` and `gryphfield-watch`. |
+| `engine/` | `gryphfield-engine` (the shell backend the UI calls), `assemble.sh` (builds the app's engine directory) the Windows helpers `direct-launch` and `gryphfield-watch`, and the Discord Rich Presence bridge (`discord-bridge.exe` in Wine, `gryphfield-discord` on macOS). |
 | `scripts/` | CI helpers: dependency setup, the macOS smoke test, the launcher smoke test and portable helper tests. |
 | `tools/` | Small Windows probes the smoke test compiles and runs under Wine (syscall, version resource, RegSaveKey, DWM blur-behind), plus DXMT patches. |
 | `port/crossover-experimental/` | Separate experiment: CrossOver 26.3.0's Wine 11.0 with FineWine patches. Not used by the app. |

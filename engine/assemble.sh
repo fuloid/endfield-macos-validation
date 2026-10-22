@@ -9,7 +9,7 @@
 # MVK_DIR        patched MoltenVK build output (libMoltenVK.dylib, LICENSE.MoltenVK)
 # STOCK_MVK_DYLIB optional: the stock MoltenVK release dylib, for the graphics diagnostics setting
 # GRYPHLINK_DIR  the GRYPHLINK launcher folder, without games/
-# TOOLS_DIR      gryphfield-watch.exe and direct-launch.exe
+# TOOLS_DIR      gryphfield-watch.exe, direct-launch.exe, discord-bridge.exe and gryphfield-discord (native)
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 OUT="${1:?usage: assemble.sh <out-dir>}"
@@ -22,7 +22,9 @@ mkdir -p "$OUT"/{bin,tools,licenses}
 # Engine CLI and Windows helpers
 cp "$HERE/bin/gryphfield-engine" "$OUT/bin/"
 chmod 755 "$OUT/bin/gryphfield-engine"
-cp "$TOOLS_DIR/gryphfield-watch.exe" "$TOOLS_DIR/direct-launch.exe" "$OUT/tools/"
+cp "$TOOLS_DIR/gryphfield-watch.exe" "$TOOLS_DIR/direct-launch.exe" "$TOOLS_DIR/discord-bridge.exe" "$OUT/tools/"
+cp "$TOOLS_DIR/gryphfield-discord" "$OUT/bin/"
+chmod 755 "$OUT/bin/gryphfield-discord"
 
 # Wine: runtime only (no headers, import libraries or man pages)
 mkdir -p "$OUT/wine"

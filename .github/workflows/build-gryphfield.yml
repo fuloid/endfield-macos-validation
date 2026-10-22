@@ -113,15 +113,24 @@ jobs:
           echo "$STOCK_MVK_SHA256  stock-mvk.tar" | shasum -a 256 -c
           mkdir stock-mvk && tar -xf stock-mvk.tar -C stock-mvk
           ls dxmt/*/ gryphlink/GRYPHLINK stock-mvk/MoltenVK/MoltenVK/dynamic/dylib/macOS/libMoltenVK.dylib
-      - name: Build the Windows helpers
+      - name: Build the helpers
         run: |
           set -euo pipefail
           brew install mingw-w64 >/dev/null
-          mkdir -p "$RUNNER_TEMP/tools"
+          mkdir -p "$RUNNER_TEMP/tools" "$RUNNER_TEMP/test-tools"
           x86_64-w64-mingw32-gcc -O2 -Wall -Wextra -Werror -municode engine/tools/gryphfield-watch.c \
             -o "$RUNNER_TEMP/tools/gryphfield-watch.exe"
           x86_64-w64-mingw32-gcc -O2 -Wall -municode -mwindows engine/tools/direct-launch.c \
             -o "$RUNNER_TEMP/tools/direct-launch.exe"
+          # Discord Rich Presence: the Windows pipe end and the native relay (arm64 and x86_64)
+          x86_64-w64-mingw32-gcc -O2 -Wall -Wextra -Werror -municode engine/tools/discord-bridge.c \
+            -o "$RUNNER_TEMP/tools/discord-bridge.exe" -lws2_32
+          clang -O2 -Wall -Wextra -Werror -arch arm64 -arch x86_64 -mmacosx-version-min=11.0 \
+            engine/tools/gryphfield-discord.c -o "$RUNNER_TEMP/tools/gryphfield-discord"
+          lipo -info "$RUNNER_TEMP/tools/gryphfield-discord"
+          # test only, not shipped
+          x86_64-w64-mingw32-gcc -O2 -Wall -Wextra -Werror tools/discord-pipe-probe/discord-pipe-probe.c \
+            -o "$RUNNER_TEMP/test-tools/discord-pipe-probe.exe"
       - name: Assemble the engine
         env:
           WINE_INSTALL: ${{ runner.temp }}/wine-validation/wine-install
@@ -138,7 +147,7 @@ jobs:
           unhide() { for d in /usr/local/opt /usr/local/Cellar; do [ ! -e "$d.hidden" ] || sudo mv "$d.hidden" "$d"; done; }
           trap unhide EXIT
           hide
-          bash engine/ci-smoke.sh "$RUNNER_TEMP/engine" "$RUNNER_TEMP/smoke"
+          bash engine/ci-smoke.sh "$RUNNER_TEMP/engine" "$RUNNER_TEMP/smoke" "$RUNNER_TEMP/test-tools"
       - name: Upload smoke-test evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
