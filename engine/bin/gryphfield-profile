@@ -3,15 +3,21 @@
 profile_candidates() { /usr/bin/pgrep -u "$(id -u)" -if 'Endfield\.exe' 2>/dev/null; }
 profile_comm() { /bin/ps -ww -p "$1" -o comm=; }
 profile_arguments() { /bin/ps -ww -p "$1" -o args=; }
-profile_from_engine() {   # pid: its executable (lsof "txt" vnode) is a Wine loader of this engine
-    # Patch 0018 execs through $TMPDIR/winetemp-*/<exe name>, a hard link (or symlink) to the loader,
-    # so compare the file itself (device:inode), not its path.
-    local path id loader
-    path="$(/usr/sbin/lsof -a -p "$1" -d txt -Fn 2>/dev/null | sed -n 's/^n//p' | head -1)"
-    [ -n "$path" ] && id="$(/usr/bin/stat -L -f '%d:%i' "$path" 2>/dev/null)" || return 1
-    for loader in "$ENGINE"/wine/bin/* "$ENGINE"/wine-dxmt/bin/*; do
-        [ -f "$loader" ] && [ "$(/usr/bin/stat -L -f '%d:%i' "$loader" 2>/dev/null)" = "$id" ] && return 0
+profile_from_engine() {   # pid: the process runs this engine's Wine (it maps one of its ntdll.so)
+    # lsof lists every mapped file as "txt", in no particular order, so look for ntdll.so. Patch 0018
+    # may reach it through a $TMPDIR/winetemp-* link, so compare the file (device:inode), not the path.
+    local path id ours="" lib
+    for lib in "$ENGINE"/wine/lib/wine/x86_64-unix/ntdll.so "$ENGINE"/wine-dxmt/lib/wine/x86_64-unix/ntdll.so; do
+        [ -f "$lib" ] && ours="$ours $(/usr/bin/stat -L -f '%d:%i' "$lib" 2>/dev/null) "
     done
+    [ -n "$ours" ] || return 1
+    while IFS= read -r path; do
+        case "$path" in */ntdll.so) ;; *) continue ;; esac
+        id="$(/usr/bin/stat -L -f '%d:%i' "$path" 2>/dev/null)" || continue
+        case "$ours" in *" $id "*) return 0 ;; esac
+    done <<EOF
+$(/usr/sbin/lsof -a -p "$1" -d txt -Fn 2>/dev/null | sed -n 's/^n//p')
+EOF
     return 1
 }
 profile_target() {
