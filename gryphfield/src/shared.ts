@@ -59,6 +59,7 @@ export type SettingsWrite = {
   readonly wined3dCsmt: boolean;
   readonly metalValidation: boolean;
   readonly hideWineVersions: boolean;
+  readonly discordPresence: boolean;
 };
 export type LocationWrite = {
   readonly prefixPath: Uint8Array;
@@ -76,4 +77,5 @@ export type SettingsResult = {
   readonly wined3dCsmt: boolean;
   readonly metalValidation: boolean;
   readonly hideWineVersions: boolean;
+  readonly discordPresence: boolean;
 };

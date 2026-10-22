@@ -318,6 +318,11 @@
               <switch checked="{hideWineVersions}" on-toggle="toggle_hide_wine_versions">Hide Wine version info from programs (test; may confuse installers)</switch>
             </column>
             <column gap="8">
+              <text>Discord</text>
+              <switch checked="{discordPresence}" on-toggle="toggle_discord_presence">Show Arknights: Endfield as my Discord activity</switch>
+              <text foreground="text_muted" wrap="true">Needs the Discord app running on this Mac. Shows the time played, and the game's own details (such as your level) when it sends them. Applies from the next launch.</text>
+            </column>
+            <column gap="8">
               <text>Graphics diagnostics</text>
               <switch checked="{stockMoltenvk}" on-toggle="toggle_stock_mvk">Use stock MoltenVK 1.4.2 instead of the patched build</switch>
               <switch checked="{mvkArgumentBuffers}" on-toggle="toggle_mvk_argbuf">MoltenVK Metal argument buffers</switch>

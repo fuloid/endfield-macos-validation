@@ -34,6 +34,7 @@ function result(config: Record<string, unknown>): SettingsResult {
     wined3dCsmt: config.wined3d_csmt !== false,
     metalValidation: config.metal_validation === true,
     hideWineVersions: config.hide_wine_versions === true,
+    discordPresence: config.discord_presence === true,
   };
 }
 export function load(request: SettingsRequest): SettingsResult {
@@ -73,6 +74,7 @@ export function save(request: SettingsWrite): SettingsResult {
   config.wined3d_csmt = request.wined3dCsmt;
   config.metal_validation = request.metalValidation;
   config.hide_wine_versions = request.hideWineVersions;
+  config.discord_presence = request.discordPresence;
   write(path, config);
   return result(config);
 }
