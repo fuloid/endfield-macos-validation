@@ -80,6 +80,9 @@ if grep -q 'Failed to create metal view' "$OUT/wine-dxmt.log" 2>/dev/null; then
     failures=$((failures + 1))
 fi
 rm -f "$OUT/home/config.json"
+# Vulkan mode: the game would draw with Vulkan; GRYPHLINK goes through DXMT, not wined3d
+launch vulkan 0
+check 'Vulkan mode uses the DXMT Wine tree' grep -q '^# graphics: vulkan (tree .*/wine-dxmt)' "$OUT/wine-vulkan.log"
 
 /bin/bash "$E" run-direct --graphics dxmt > "$OUT/run-direct.jsonl" 2>&1
 check 'run-direct without a game fails with GAME_MISSING' grep -q '"code":"GAME_MISSING"' "$OUT/run-direct.jsonl"

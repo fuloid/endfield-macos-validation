@@ -165,11 +165,14 @@ graphics_mode() {   # --graphics flag, else config, else dxmt
 
 # Select the Wine tree and environment for a graphics mode. wine-dxmt is the same Wine with
 # DXMT's d3d11/dxgi/d3d10core/winemetal in place of Wine's own (see engine/assemble.sh).
+# Vulkan mode also uses it: the game draws with Vulkan (MoltenVK) either way, and GRYPHLINK and
+# other D3D11 users then get DXMT instead of wined3d, which draws GRYPHLINK only half.
 use_wine() {   # mode
     MODE="$1"
     TREE="$ENGINE/wine"
-    if [ "$MODE" = dxmt ]; then
-        if [ -x "$ENGINE/wine-dxmt/bin/wine" ]; then TREE="$ENGINE/wine-dxmt"; else say "DXMT is missing; using wined3d"; MODE=wined3d; fi
+    if [ "$MODE" = dxmt ] || [ "$MODE" = vulkan ]; then
+        if [ -x "$ENGINE/wine-dxmt/bin/wine" ]; then TREE="$ENGINE/wine-dxmt"
+        elif [ "$MODE" = dxmt ]; then say "DXMT is missing; using wined3d"; MODE=wined3d; fi
     fi
     WINE="$TREE/bin/wine"
     WINESERVER="$TREE/bin/wineserver"
@@ -204,7 +207,8 @@ use_wine() {   # mode
     case "$MODE" in
         dxmt) GAME_ARGS=(-force-d3d11) ;;
         wined3d) GAME_ARGS=(-force-d3d11); export WINE_D3D_CONFIG='renderer=vulkan' ;;
-        vulkan) GAME_ARGS=(-force-vulkan); export WINE_D3D_CONFIG='renderer=vulkan' ;;
+        vulkan) GAME_ARGS=(-force-vulkan)
+                [ "$TREE" = "$ENGINE/wine-dxmt" ] || export WINE_D3D_CONFIG='renderer=vulkan' ;;
     esac
     # Graphics diagnostics (Settings > Graphics diagnostics); the defaults change nothing.
     DIAG=""
@@ -358,7 +362,7 @@ cmd_run() {   # gryphlink|direct [--graphics MODE] [-- game args]
     game_running && fail ALREADY_RUNNING "Endfield is already running."
     version="$(gryphlink_version)"
     use_wine "$(graphics_mode)"
-    [ "$MODE" = dxmt ] && dxmt_stub
+    [ "$TREE" = "$ENGINE/wine-dxmt" ] && dxmt_stub
 
     EXTRA=()
     extra="$(cfg extra_args '')"
