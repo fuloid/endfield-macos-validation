@@ -21,6 +21,7 @@ function result(config: Record<string, unknown>): SettingsResult {
     graphics: encode(["dxmt", "wined3d", "vulkan"].includes(String(config.graphics)) ? String(config.graphics) : "dxmt"),
     extraArgs: encode(typeof config.extra_args === "string" ? config.extra_args.slice(0, 2048) : ""),
     debugLogging: config.debug_logging === true,
+    exceptionTrace: config.exception_trace === true,
     rosettaAvx: config.rosetta_avx !== false,
     stockMoltenvk: config.moltenvk_stock === true,
     mvkArgumentBuffers: config.mvk_argument_buffers !== false,
@@ -58,6 +59,7 @@ export function save(request: SettingsWrite): SettingsResult {
   config.graphics = graphics;
   config.extra_args = decode(request.extraArgs);
   config.debug_logging = request.debugLogging;
+  config.exception_trace = request.exceptionTrace;
   config.rosetta_avx = request.rosettaAvx;
   config.moltenvk_stock = request.stockMoltenvk;
   config.mvk_argument_buffers = request.mvkArgumentBuffers;
