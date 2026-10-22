@@ -9,7 +9,7 @@ name: Build Gryphfield.app
       ui_ref:
         description: 'Branch or commit of the Gryphfield UI'
         type: string
-        default: gryphfield-ui
+        default: 2d53e811a4e7e6cc66bd9bb8f1cdcd4c92c85776
 
 permissions:
   contents: read
@@ -23,11 +23,18 @@ concurrency:
   cancel-in-progress: false
 
 env:
+  ENGINE_VERSION: 0.1.0-pre12
   # DXMT v0.80 (589adb78) built by "Build DXMT (experiment)" with tools/dxmt/*.patch, frozen on R2.
   # DXMT_LABEL is the tarball's top directory.
   DXMT_VERSION: v0.80-gryphfield-1
   DXMT_LABEL: dxmt-589adb780354-gryphfield
   DXMT_URL: https://s.purin.my/akef/dxmt-v0.80-gryphfield-1.tar.xz
+  # Apple's D3DMetal (Game Porting Toolkit 4.0b3), minimum D3D11 runtime packed by
+  # tools/d3dmetal/pack.py, frozen on R2. D3DMETAL_LABEL is the top directory.
+  D3DMETAL_VERSION: 4.0b3-gryphfield-1
+  D3DMETAL_LABEL: d3dmetal-4.0b3
+  D3DMETAL_URL: https://s.purin.my/akef/d3dmetal-4.0b3-gryphfield-1.tar.xz
+  D3DMETAL_SHA256: 5243f4c000b4235096a5c1a9d2891b5ceffc315000d35e198a8f8352a195f7f0
   DXMT_SHA256: acb8fbc0933fb63632bf9ad01249589c09004fbb3b8738a5c3c0324490743831
   GRYPHLINK_URL: https://s.purin.my/akef/gryphlink-launcher.tar.xz
   STOCK_MVK_URL: https://github.com/KhronosGroup/MoltenVK/releases/download/v1.4.2/MoltenVK-macos.tar
@@ -106,6 +113,9 @@ jobs:
           curl -fsSL -o dxmt.tar.xz "$DXMT_URL"
           echo "$DXMT_SHA256  dxmt.tar.xz" | shasum -a 256 -c
           mkdir dxmt && tar -xJf dxmt.tar.xz -C dxmt
+          curl -fsSL -o d3dmetal.tar.xz "$D3DMETAL_URL"
+          echo "$D3DMETAL_SHA256  d3dmetal.tar.xz" | shasum -a 256 -c
+          mkdir d3dmetal && tar -xJf d3dmetal.tar.xz -C d3dmetal
           curl -fsSL -o gryphlink.tar.xz "$GRYPHLINK_URL"
           echo "$GRYPHLINK_SHA256  gryphlink.tar.xz" | shasum -a 256 -c
           mkdir gryphlink && tar -xJf gryphlink.tar.xz -C gryphlink
@@ -128,15 +138,25 @@ jobs:
           clang -O2 -Wall -Wextra -Werror -arch arm64 -arch x86_64 -mmacosx-version-min=11.0 \
             engine/tools/gryphfield-discord.c -o "$RUNNER_TEMP/tools/gryphfield-discord"
           lipo -info "$RUNNER_TEMP/tools/gryphfield-discord"
+          clang -O2 -Wall -Wextra -Werror -arch arm64 -arch x86_64 -mmacosx-version-min=11.0 \
+            engine/tools/gryphfield-hud.m -framework Foundation -o "$RUNNER_TEMP/tools/gryphfield-hud"
           # test only, not shipped
           x86_64-w64-mingw32-gcc -O2 -Wall -Wextra -Werror tools/discord-pipe-probe/discord-pipe-probe.c \
             -o "$RUNNER_TEMP/test-tools/discord-pipe-probe.exe"
           x86_64-w64-mingw32-gcc -O2 -Wall -Wextra -Werror engine/tests/profile-fixture.c \
             -o "$RUNNER_TEMP/test-tools/Endfield.exe"
+          x86_64-w64-mingw32-gcc -O2 -Wall -Wextra -Werror engine/tests/d3d11-probe.c \
+            -o "$RUNNER_TEMP/test-tools/d3d11-probe.exe" -ld3d11 -ldxguid
+          clang -O2 -Wall -Wextra -Werror -arch x86_64 engine/tests/framework-probe.c \
+            -o "$RUNNER_TEMP/test-tools/framework-probe"
+          clang -O2 -Wall -Wextra -Werror engine/tests/hud-test.m -framework Foundation \
+            -o "$RUNNER_TEMP/test-tools/hud-test"
+          "$RUNNER_TEMP/test-tools/hud-test"
       - name: Assemble the engine
         env:
           WINE_INSTALL: ${{ runner.temp }}/wine-validation/wine-install
           DXMT_DIR: ${{ runner.temp }}/dxmt/${{ env.DXMT_LABEL }}
+          D3DMETAL_DIR: ${{ runner.temp }}/d3dmetal/${{ env.D3DMETAL_LABEL }}
           MVK_DIR: ${{ runner.temp }}/moltenvk
           STOCK_MVK_DYLIB: ${{ runner.temp }}/stock-mvk/MoltenVK/MoltenVK/dynamic/dylib/macOS/libMoltenVK.dylib
           GRYPHLINK_DIR: ${{ runner.temp }}/gryphlink/GRYPHLINK
@@ -237,11 +257,14 @@ jobs:
               f.write("\n")
           PY
           test -s "$app/Contents/Resources/engine/bin/gryphfield-profile"
+          /usr/libexec/PlistBuddy -c 'Set :CFBundleVersion 12' "$app/Contents/Info.plist"
           # x86_64 Mach-O files are unsigned by default; sign each before sealing the bundle
           find "$app/Contents/Resources/engine" -type f -perm -u+x -o -type f \( -name '*.so' -o -name '*.dylib' \) \
             | while IFS= read -r f; do
-                if file -b "$f" | grep -q 'Mach-O'; then codesign --force --sign - "$f" >/dev/null 2>&1 || echo "could not sign $f"; fi
+                if file -b "$f" | grep -q 'Mach-O'; then codesign --force --sign - "$f"; fi
               done
+          codesign --force --sign - "$app/Contents/Resources/engine/wine-d3dmetal/lib/external/D3DMetal.framework"
+          codesign --verify --strict --verbose=2 "$app/Contents/Resources/engine/wine-d3dmetal/lib/external/D3DMetal.framework"
           codesign --force --sign - "$app"
           codesign --verify --strict --verbose=2 "$app"
           cd "$RUNNER_TEMP/dist"

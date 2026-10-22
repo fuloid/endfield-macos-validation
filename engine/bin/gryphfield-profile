@@ -7,7 +7,7 @@ profile_from_engine() {   # pid: the process runs this engine's Wine (it maps on
     # lsof lists every mapped file as "txt", in no particular order, so look for ntdll.so. Patch 0018
     # may reach it through a $TMPDIR/winetemp-* link, so compare the file (device:inode), not the path.
     local path id ours="" lib
-    for lib in "$ENGINE"/wine/lib/wine/x86_64-unix/ntdll.so "$ENGINE"/wine-dxmt/lib/wine/x86_64-unix/ntdll.so; do
+    for lib in "$ENGINE"/wine/lib/wine/x86_64-unix/ntdll.so "$ENGINE"/wine-dxmt/lib/wine/x86_64-unix/ntdll.so "$ENGINE"/wine-d3dmetal/lib/wine/x86_64-unix/ntdll.so; do
         [ -f "$lib" ] && ours="$ours $(/usr/bin/stat -L -f '%d:%i' "$lib" 2>/dev/null) "
     done
     [ -n "$ours" ] || return 1

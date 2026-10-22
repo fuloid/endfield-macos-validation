@@ -8,7 +8,7 @@
 # Commands: status | setup | run-gryphlink [--graphics MODE] | run-direct [--graphics MODE] [-- ARGS]
 #           stop-game | stop | kill | restart | logs | uninstall-game --yes
 #           reset-prefix --yes [--keep-game] | choose-location | check-location PATH
-# Graphics modes: dxmt (default) | wined3d | vulkan
+# Graphics modes: dxmt (default) | d3dmetal | wined3d | vulkan
 #
 # GRYPHLINK and the game live in the prefix (C:\GRYPHLINK) unless config.json sets
 # "library_dir" to a folder: then they live in <library_dir>/GRYPHLINK, which Wine sees as L:.
@@ -162,16 +162,21 @@ wineserver_running() { /usr/bin/pgrep -f -- "$ENGINE/wine.*wineserver" >/dev/nul
 
 graphics_mode() {   # --graphics flag, else config, else dxmt
     local mode="${OPT_GRAPHICS:-$(cfg graphics dxmt)}"
-    case "$mode" in dxmt|wined3d|vulkan) printf '%s' "$mode" ;; *) printf dxmt ;; esac
+    case "$mode" in dxmt|d3dmetal|wined3d|vulkan) printf '%s' "$mode" ;; *) printf dxmt ;; esac
 }
 
 # Select the Wine tree and environment for a graphics mode. wine-dxmt is the same Wine with
 # DXMT's d3d11/dxgi/d3d10core/winemetal in place of Wine's own (see engine/assemble.sh).
 # Vulkan mode also uses it: the game draws with Vulkan (MoltenVK) either way, and GRYPHLINK and
 # other D3D11 users then get DXMT instead of wined3d, which draws GRYPHLINK only half.
+# wine-d3dmetal has Apple's D3DMetal d3d11/dxgi (Game Porting Toolkit) instead; the game runs D3D11.
 use_wine() {   # mode
     MODE="$1"
     TREE="$ENGINE/wine"
+    if [ "$MODE" = d3dmetal ]; then
+        if [ -x "$ENGINE/wine-d3dmetal/bin/wine" ]; then TREE="$ENGINE/wine-d3dmetal"
+        else say "D3DMetal is missing; using DXMT"; MODE=dxmt; fi
+    fi
     if [ "$MODE" = dxmt ] || [ "$MODE" = vulkan ]; then
         if [ -x "$ENGINE/wine-dxmt/bin/wine" ]; then TREE="$ENGINE/wine-dxmt"
         elif [ "$MODE" = dxmt ]; then say "DXMT is missing; using wined3d"; MODE=wined3d; fi
@@ -186,6 +191,13 @@ use_wine() {   # mode
         mvk="$ENGINE/moltenvk-stock"
     fi
     export DYLD_FALLBACK_LIBRARY_PATH="$mvk:$ENGINE/wine/lib/external:/usr/lib"
+    if [ "$TREE" = "$ENGINE/wine-d3dmetal" ]; then
+        # libd3dshared.dylib loads the framework next to it; these make sure it finds this copy
+        export D3DMETAL_FRAMEWORK_PATH="$TREE/lib/external/D3DMetal.framework/D3DMetal"
+        export DYLD_FALLBACK_FRAMEWORK_PATH="$TREE/lib/external"
+    else
+        unset D3DMETAL_FRAMEWORK_PATH DYLD_FALLBACK_FRAMEWORK_PATH
+    fi
     export WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d'
     if [ "$(cfg rosetta_avx true)" != false ]; then export ROSETTA_ADVERTISE_AVX=1; else unset ROSETTA_ADVERTISE_AVX; fi
     # Wine's builtin DLLs report no version resource (Wine patch 0017, CrossOver's hack 25427).
@@ -207,7 +219,7 @@ use_wine() {   # mode
     unset WINE_D3D_CONFIG
     GAME_ARGS=()
     case "$MODE" in
-        dxmt) GAME_ARGS=(-force-d3d11) ;;
+        dxmt|d3dmetal) GAME_ARGS=(-force-d3d11) ;;
         wined3d) GAME_ARGS=(-force-d3d11); export WINE_D3D_CONFIG='renderer=vulkan' ;;
         vulkan) GAME_ARGS=(-force-vulkan)
                 [ "$TREE" = "$ENGINE/wine-dxmt" ] || export WINE_D3D_CONFIG='renderer=vulkan' ;;
@@ -230,6 +242,45 @@ use_wine() {   # mode
     else
         unset MTL_DEBUG_LAYER MTL_DEBUG_LAYER_ERROR_MODE MTL_DEBUG_LAYER_WARNING_MODE MVK_CONFIG_LOG_LEVEL
     fi
+    # Apple's Metal performance HUD (Settings > Performance): FPS, frame and GPU time on every Metal
+    # window, in all graphics modes. Its log (one line per frame in the macOS log, collected by
+    # perf_start) needs the HUD on.
+    HUD_LOG="$(cfg metal_hud_log off)"
+    case "$HUD_LOG" in 1s|frame) ;; *) HUD_LOG=off ;; esac
+    if [ "$(cfg metal_hud false)" = true ] || [ "$HUD_LOG" != off ]; then
+        export MTL_HUD_ENABLED=1; DIAG="$DIAG metal-hud"
+    else
+        unset MTL_HUD_ENABLED
+    fi
+    if [ "$HUD_LOG" != off ]; then
+        export MTL_HUD_LOG_ENABLED=1; DIAG="$DIAG hud-log-$HUD_LOG"
+    else
+        unset MTL_HUD_LOG_ENABLED
+    fi
+}
+
+# The native collector filters records by this engine's loader/library identity
+# and exact WINEPREFIX when Wine's process naming has not erased it.
+# It owns and reaps log(1); EXIT/TERM traps prevent collectors surviving the launch.
+PERF_PID="" PERF_LOG=""
+perf_start() {
+    [ "${HUD_LOG:-off}" != off ] || return 0
+    PERF_LOG="$LOGS/metal-hud-$(date +%Y%m%d-%H%M%S)-$$.log"
+    ln -sf "$(basename "$PERF_LOG")" "$LOGS/latest-metal-hud.log"
+    printf '# Gryphfield Metal HUD log (%s), %s, graphics %s\n' "$HUD_LOG" "$(date)" "$MODE" > "$PERF_LOG"
+    "$ENGINE/bin/gryphfield-hud" "$PREFIX" "$ENGINE" "$HUD_LOG" "$PERF_LOG" 2>> "$ENGINE_LOG" 7>&- 8<&- &
+    PERF_PID=$!
+    trap perf_stop EXIT
+    trap 'exit 143' TERM
+    trap 'exit 130' INT
+    say "Metal HUD log ($HUD_LOG): $PERF_LOG"
+}
+perf_stop() {
+    [ -n "$PERF_PID" ] || return 0
+    kill "$PERF_PID" 2>/dev/null
+    wait "$PERF_PID" 2>/dev/null
+    PERF_PID=""
+    trim_log "$PERF_LOG" "$LOG_CAP_MB"
 }
 
 # Once a prefix exists, Wine only loads built-in DLLs that have a file in system32. wineboot
@@ -425,6 +476,7 @@ cmd_run() {   # gryphlink|direct [--graphics MODE] [-- game args]
 
     GAME_STARTED=0 UNITY_STABLE=0 FAILED=0 FAIL_REASON="" EXIT_CODE=""
     discord_start
+    perf_start
     fifo="$(mktemp -u "${TMPDIR:-/tmp}/gryphfield.XXXXXX")"
     mkfifo "$fifo" || fail INTERNAL "Could not create a pipe for launch events."
     if [ "$kind" = gryphlink ]; then
@@ -444,7 +496,11 @@ cmd_run() {   # gryphlink|direct [--graphics MODE] [-- game args]
 
     trim_at=$((SECONDS + 5))
     while :; do
-        if [ "$SECONDS" -ge "$trim_at" ]; then trim_log "$WLOG" "$LOG_CAP_MB"; trim_at=$((SECONDS + 5)); fi
+        if [ "$SECONDS" -ge "$trim_at" ]; then
+            trim_log "$WLOG" "$LOG_CAP_MB"
+            [ -z "$PERF_LOG" ] || trim_log "$PERF_LOG" "$LOG_CAP_MB"
+            trim_at=$((SECONDS + 5))
+        fi
         if IFS= read -r -t 2 -u 3 line; then handle_event "$line"; continue; fi
         if ! kill -0 "$watch_pid" 2>/dev/null; then
             while IFS= read -r -u 3 line; do handle_event "$line"; done
@@ -464,6 +520,7 @@ cmd_run() {   # gryphlink|direct [--graphics MODE] [-- game args]
     if [ "$FAILED" = 1 ] && kill -0 "$main_pid" 2>/dev/null; then kill "$main_pid" 2>/dev/null; fi
     wait_for_exit 20 "$main_pid"
     discord_stop
+    perf_stop
     trim_log "$WLOG" "$LOG_CAP_MB"
     say "run-$kind ended: game_started=$GAME_STARTED unity_stable=$UNITY_STABLE exit_code=${EXIT_CODE:-none}"
 
@@ -648,5 +705,13 @@ case "$command" in
     check-location) cmd_check_location "$@" ;;
     _trim-log) trim_log "$1" "$2"; finish_ok ;;   # for engine/ci-smoke.sh
     _discord-selftest) cmd_discord_selftest "$@" ;;   # for engine/ci-smoke.sh
+    _graphics-selftest)   # harmless fixture, with the real launch environment and HUD collector
+        use_wine "$1"
+        LOG_CAP_MB="$(log_cap_mb)"
+        perf_start
+        run_timeout 45 "$WINE" "$2"
+        rc=$?
+        perf_stop
+        exit "$rc" ;;
     *) fail UNKNOWN_COMMAND "Unknown command: $command" ;;
 esac

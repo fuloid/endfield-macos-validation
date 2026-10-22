@@ -85,6 +85,23 @@ rm -f "$OUT/home/config.json"
 # Vulkan mode: the game would draw with Vulkan; GRYPHLINK goes through DXMT, not wined3d
 launch vulkan 0
 check 'Vulkan mode uses the DXMT Wine tree' grep -q '^# graphics: vulkan (tree .*/wine-dxmt)' "$OUT/wine-vulkan.log"
+# D3DMetal mode: Apple's d3d11/dxgi. The VM's paravirtual GPU may not run it, so the launch is
+# informational; the overlay layout and the tree choice are required.
+if [ -x "$ENGINE/wine-d3dmetal/bin/wine" ]; then
+    d3dm="$ENGINE/wine-d3dmetal/lib"
+    check 'D3DMetal: d3d11.so and dxgi.so link to libd3dshared' bash -c \
+        "[ \"\$(readlink '$d3dm/wine/x86_64-unix/d3d11.so')\" = ../../external/libd3dshared.dylib ] && [ \"\$(readlink '$d3dm/wine/x86_64-unix/dxgi.so')\" = ../../external/libd3dshared.dylib ] && [ -f '$d3dm/wine/x86_64-unix/d3d11.so' ]"
+    check 'D3DMetal: the framework binary resolves' test -f "$d3dm/external/D3DMetal.framework/D3DMetal"
+    check "D3DMetal: d3d11.dll is Apple's" grep -q 'D3DMetalDLLsBase' "$d3dm/wine/x86_64-windows/d3d11.dll"
+    printf '{"debug_logging":true}\n' > "$OUT/home/config.json"
+    launch d3dmetal 0
+    check 'D3DMetal mode uses the D3DMetal Wine tree' grep -q '^# graphics: d3dmetal (tree .*/wine-d3dmetal)' "$OUT/wine-d3dmetal.log"
+    note "- INFO D3DMetal: $(grep -c 'wine-d3dmetal.*d3d11' "$OUT/wine-d3dmetal.log" 2>/dev/null) d3d11 load lines; $(grep -c 'Failed to dlopen D3DMetal' "$OUT/wine-d3dmetal.log" 2>/dev/null) 'Failed to dlopen D3DMetal'"
+    rm -f "$OUT/home/config.json"
+else
+    note '- FAIL D3DMetal: the engine has no wine-d3dmetal tree'
+    failures=$((failures + 1))
+fi
 
 /bin/bash "$E" run-direct --graphics dxmt > "$OUT/run-direct.jsonl" 2>&1
 check 'run-direct without a game fails with GAME_MISSING' grep -q '"code":"GAME_MISSING"' "$OUT/run-direct.jsonl"
@@ -100,7 +117,7 @@ check 'check-location accepts a writable folder' done_ok "$OUT/location-ok.jsonl
 /bin/bash "$E" check-location "$OUT/home/prefix/drive_c" > "$OUT/location-bad.jsonl" 2>&1
 # Diagnostics settings: all five non-default values reach the Wine environment
 check 'stock MoltenVK is bundled for the diagnostics setting'     lipo "$ENGINE/moltenvk-stock/libMoltenVK.dylib" -verify_arch x86_64
-printf '{"moltenvk_stock":true,"mvk_argument_buffers":false,"wined3d_csmt":false,"metal_validation":true,"hide_wine_versions":true,"exception_trace":true,"log_max_mb":10}
+printf '{"moltenvk_stock":true,"mvk_argument_buffers":false,"wined3d_csmt":false,"metal_validation":true,"hide_wine_versions":true,"exception_trace":true,"log_max_mb":10,"metal_hud_log":"1s"}
 '     > "$OUT/home/config.json"
 launch wined3d 0 diagnostics
 check 'diagnostics settings reach the Wine log header'     grep -q 'csmt=0x0, diagnostics: stock-moltenvk no-argument-buffers no-csmt metal-validation' "$OUT/wine-diagnostics.log"
@@ -127,6 +144,38 @@ else
 fi
 check 'exception_trace adds the full +seh trace' grep -q 'WINEDEBUG=fixme-all,err+all,warn+seh,+seh, ' "$OUT/wine-diagnostics.log"
 check 'log_max_mb below 50 is raised to 50' grep -q '; log limit 50 MB$' "$OUT/wine-diagnostics.log"
+check 'metal_hud_log turns the HUD and its log on' grep -q 'metal-validation metal-hud hud-log-1s$' "$OUT/wine-diagnostics.log"
+check 'the Metal HUD log file is created' bash -c "head -1 '$OUT/logs/latest-metal-hud.log' | grep -q '^# Gryphfield Metal HUD log (1s)'"
+
+# Load the actual framework with all symbols resolved, then exercise D3D11
+# device/swapchain creation and real presentation under both implementations.
+check 'D3DMetal framework loads on this macOS runtime' env \
+    DYLD_FALLBACK_LIBRARY_PATH="$ENGINE/wine-d3dmetal/lib/external:/usr/lib" \
+    "$TEST_TOOLS/framework-probe" "$ENGINE/wine-d3dmetal/lib/external/D3DMetal.framework/D3DMetal"
+for mode in dxmt d3dmetal; do
+    printf '{"metal_hud_log":"frame"}\n' > "$OUT/home/config.json"
+    /bin/bash "$E" _graphics-selftest "$mode" "$TEST_TOOLS/d3d11-probe.exe" > "$OUT/device-$mode.log" 2>&1
+    rc=$?
+    cat "$OUT/device-$mode.log"
+    cp "$OUT/logs/latest-metal-hud.log" "$OUT/hud-$mode.log" 2>/dev/null
+    check "$mode: HUD collector flushed and stopped" grep -q '^# Collected ' "$OUT/hud-$mode.log"
+    if [ "$rc" = 0 ]; then
+        check "$mode: real D3D11 device and 240 presented frames" grep -q '^presented_frames=240' "$OUT/device-$mode.log"
+    elif [ "$rc" = 2 ] && grep -q '^device_hresult=0x' "$OUT/device-$mode.log" && \
+         system_profiler SPDisplaysDataType | grep -qi 'Paravirtual'; then
+        note "- LIMITATION $mode: CI's paravirtual GPU refused D3D11 device creation; see device-$mode.log (not a gameplay pass)."
+    else
+        note "- FAIL $mode: D3D11 fixture exited $rc; see device-$mode.log"
+        failures=$((failures + 1))
+    fi
+    if grep -q '"processID"' "$OUT/hud-$mode.log"; then
+        note "- PASS $mode: attributed, per-frame Metal HUD records captured"
+    else
+        note "- LIMITATION $mode: macOS emitted no attributable Metal HUD records; HUD runtime logging is unverified on this runner."
+    fi
+done
+check 'HUD collectors do not outlive the launch' bash -c "! pgrep -f '^$ENGINE/bin/gryphfield-hud ' >/dev/null"
+rm -f "$OUT/home/config.json"
 # Log limit: a 65 MB log with a 50 MB limit keeps its first and newest lines and drops to about half
 seq -f 'line %08.0f padding-padding-padding-padding-padding' 1 1200000 > "$OUT/trim-test.log"
 /bin/bash "$E" _trim-log "$OUT/trim-test.log" 50 > "$OUT/trim-test.jsonl" 2>&1
