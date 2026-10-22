@@ -350,7 +350,7 @@
               <text>Performance log</text>
               <row gap="0">
                 <segmented-control selected="{hudLog == 'off'}" on-press="hud_log_off">Off</segmented-control>
-                <segmented-control selected="{hudLog == '1s'}" on-press="hud_log_1s">Every second</segmented-control>
+                <segmented-control selected="{hudLog == 'second'}" on-press="hud_log_second">Every second</segmented-control>
                 <segmented-control selected="{hudLog == 'frame'}" on-press="hud_log_frame">Every frame</segmented-control>
               </row>
               <text foreground="text_muted" wrap="true">Saves the HUD's numbers to metal-hud logs next to the Wine logs, within the log size limit. Logging also shows the HUD. Applies from the next launch.</text>

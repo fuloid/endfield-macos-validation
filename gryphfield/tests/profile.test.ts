@@ -94,11 +94,11 @@ test("D3DMetal and HUD log controls preserve independent settings drafts", async
   assert.equal(s.model.hudLog, "off");
   s = await scrollTo(app, s, "Every second");
   s = await app.click(s.widgets.find(w => w.name === "Every second")!);
-  assert.equal(s.model.hudLog, "1s");
+  assert.equal(s.model.hudLog, "second");
   s = await scrollTo(app, s, name);
   s = await app.action(s.widgets.find(w => w.name === name)!, "toggle");
   assert.equal(s.model.metalHud, false);
-  assert.equal(s.model.hudLog, "1s");
+  assert.equal(s.model.hudLog, "second");
   s = await scrollTo(app, s, "Every frame");
   s = await app.click(s.widgets.find(w => w.name === "Every frame")!);
   assert.equal(s.model.hudLog, "frame");

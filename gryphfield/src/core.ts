@@ -7,7 +7,8 @@ export type Phase = "boot" | "checking" | "setup" | "ready" | "running" | "failu
 export type Action = "none" | "status" | "setup" | "gryphlink" | "direct";
 export type Modal = "profile" | "none" | "settings" | "failure" | "uninstall1" | "uninstall2" | "reset1" | "reset2";
 export type Graphics = "dxmt" | "d3dmetal" | "wined3d" | "vulkan";
-export type HudLog = "off" | "1s" | "frame";
+// "second" is stored as "1s" in config.json (an enum member cannot start with a digit)
+export type HudLog = "off" | "second" | "frame";
 export type Launch = "none" | "gryphlink" | "direct";
 export type SetupStep = "none" | "rosetta" | "prefix" | "gryphlink";
 export type StepState = "pending" | "active" | "done" | "failed";
@@ -131,7 +132,7 @@ export type Msg =
   | { readonly kind: "d3dmetal" }
   | { readonly kind: "toggle_metal_hud" }
   | { readonly kind: "hud_log_off" }
-  | { readonly kind: "hud_log_1s" }
+  | { readonly kind: "hud_log_second" }
   | { readonly kind: "hud_log_frame" }
   | { readonly kind: "uninstall_ask" }
   | { readonly kind: "uninstall_next" }
@@ -459,7 +460,7 @@ export function update(model: Model, msg: Msg): Model | [Model, Cmd<Msg>] {
     case "d3dmetal": return { ...model, graphics: "d3dmetal", settingsSaved: false };
     case "toggle_metal_hud": return { ...model, metalHud: !model.metalHud, settingsSaved: false };
     case "hud_log_off": return { ...model, hudLog: "off", settingsSaved: false };
-    case "hud_log_1s": return { ...model, hudLog: "1s", settingsSaved: false };
+    case "hud_log_second": return { ...model, hudLog: "second", settingsSaved: false };
     case "hud_log_frame": return { ...model, hudLog: "frame", settingsSaved: false };
     case "uninstall_ask": return model.gameReady && !model.wineRunning && model.action === "none" && !model.controlBusy ? { ...model, modal: "uninstall1" } : model;
     case "uninstall_next": return { ...model, modal: "uninstall2" };
@@ -482,7 +483,7 @@ export function update(model: Model, msg: Msg): Model | [Model, Cmd<Msg>] {
       const size = text.length;
       if (!(size >= 0) || size > 2048) return model;
       const end = Math.trunc(size);
-      return { ...model, graphics: sameAscii(value.graphics, asciiBytes("vulkan")) ? "vulkan" : sameAscii(value.graphics, asciiBytes("wined3d")) ? "wined3d" : sameAscii(value.graphics, asciiBytes("d3dmetal")) ? "d3dmetal" : "dxmt", argsEdit: { text, selection: { anchor: end, focus: end }, composition: null }, debugLogging: value.debugLogging, exceptionTrace: value.exceptionTrace, logCapEdit: caretAtEnd(value.logMaxMb), rosettaAvx: value.rosettaAvx, stockMoltenvk: value.stockMoltenvk, mvkArgumentBuffers: value.mvkArgumentBuffers, wined3dCsmt: value.wined3dCsmt, metalValidation: value.metalValidation, metalHud: value.metalHud, hudLog: sameAscii(value.metalHudLog, asciiBytes("1s")) ? "1s" : sameAscii(value.metalHudLog, asciiBytes("frame")) ? "frame" : "off", hideWineVersions: value.hideWineVersions, discordPresence: value.discordPresence, settingsSaved: true };
+      return { ...model, graphics: sameAscii(value.graphics, asciiBytes("vulkan")) ? "vulkan" : sameAscii(value.graphics, asciiBytes("wined3d")) ? "wined3d" : sameAscii(value.graphics, asciiBytes("d3dmetal")) ? "d3dmetal" : "dxmt", argsEdit: { text, selection: { anchor: end, focus: end }, composition: null }, debugLogging: value.debugLogging, exceptionTrace: value.exceptionTrace, logCapEdit: caretAtEnd(value.logMaxMb), rosettaAvx: value.rosettaAvx, stockMoltenvk: value.stockMoltenvk, mvkArgumentBuffers: value.mvkArgumentBuffers, wined3dCsmt: value.wined3dCsmt, metalValidation: value.metalValidation, metalHud: value.metalHud, hudLog: sameAscii(value.metalHudLog, asciiBytes("1s")) ? "second" : sameAscii(value.metalHudLog, asciiBytes("frame")) ? "frame" : "off", hideWineVersions: value.hideWineVersions, discordPresence: value.discordPresence, settingsSaved: true };
     }
     // The service clamps the log cap to 50-5120 MB; show the value it stored.
     case "settings_saved": return { ...model, settingsSaved: true, settingsBusy: false, logCapEdit: caretAtEnd(msg.result.logMaxMb) };
@@ -504,7 +505,7 @@ export function update(model: Model, msg: Msg): Model | [Model, Cmd<Msg>] {
     case "toggle_metal_validation": return { ...model, metalValidation: !model.metalValidation, settingsSaved: false };
     case "toggle_hide_wine_versions": return { ...model, hideWineVersions: !model.hideWineVersions, settingsSaved: false };
     case "toggle_discord_presence": return { ...model, discordPresence: !model.discordPresence, settingsSaved: false };
-    case "save_settings": if (model.settingsBusy) return model; return [{ ...model, settingsBusy: true }, settingsSave({ prefixPath: model.prefixPath, graphics: asciiBytes(model.graphics), extraArgs: model.argsEdit.text, debugLogging: model.debugLogging, exceptionTrace: model.exceptionTrace, logMaxMb: model.logCapEdit.text, rosettaAvx: model.rosettaAvx, stockMoltenvk: model.stockMoltenvk, mvkArgumentBuffers: model.mvkArgumentBuffers, wined3dCsmt: model.wined3dCsmt, metalValidation: model.metalValidation, metalHud: model.metalHud, metalHudLog: asciiBytes(model.hudLog), hideWineVersions: model.hideWineVersions, discordPresence: model.discordPresence }, { ok: "settings_saved", err: "settings_failed" })];
+    case "save_settings": if (model.settingsBusy) return model; return [{ ...model, settingsBusy: true }, settingsSave({ prefixPath: model.prefixPath, graphics: asciiBytes(model.graphics), extraArgs: model.argsEdit.text, debugLogging: model.debugLogging, exceptionTrace: model.exceptionTrace, logMaxMb: model.logCapEdit.text, rosettaAvx: model.rosettaAvx, stockMoltenvk: model.stockMoltenvk, mvkArgumentBuffers: model.mvkArgumentBuffers, wined3dCsmt: model.wined3dCsmt, metalValidation: model.metalValidation, metalHud: model.metalHud, metalHudLog: asciiBytes(model.hudLog === "second" ? "1s" : model.hudLog), hideWineVersions: model.hideWineVersions, discordPresence: model.discordPresence }, { ok: "settings_saved", err: "settings_failed" })];
     case "show_prefix": return [model, Cmd.revealPath(model.prefixPath)];
     case "show_launcher": return [model, Cmd.revealPath(model.launcherPath)];
     case "show_game": return [model, Cmd.revealPath(model.gamePath)];
