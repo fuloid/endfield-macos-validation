@@ -242,6 +242,24 @@ use_wine() {   # mode
     else
         unset MTL_DEBUG_LAYER MTL_DEBUG_LAYER_ERROR_MODE MTL_DEBUG_LAYER_WARNING_MODE MVK_CONFIG_LOG_LEVEL
     fi
+    # Vulkan lighting investigation: debug mode requests Metal encoder error status, but also
+    # logs translated shaders. Keep it opt-in and independent of the Metal validation layer.
+    if [ "$MODE" = vulkan ] && [ "$(cfg mvk_debug false)" = true ]; then
+        export MVK_CONFIG_DEBUG=1
+        unset MVK_DEBUG   # the legacy variable overrides MVK_CONFIG_DEBUG, even when it is 0
+        [ -n "${MVK_CONFIG_LOG_LEVEL:-}" ] || export MVK_CONFIG_LOG_LEVEL=3
+        DIAG="$DIAG mvk-debug"
+    else
+        unset MVK_CONFIG_DEBUG
+    fi
+    # Patch 0004's existing control: zero stops its cache-load workers (including pipeline
+    # replay). First-use compilation, library sharing and the other patches remain enabled.
+    if [ "$MODE" = vulkan ] && [ "$(cfg mvk_background_compilation true)" = false ]; then
+        export MVK_CONFIG_PIPELINE_CACHE_BACKGROUND_WORKERS=0
+        DIAG="$DIAG no-mvk-background-compilation"
+    else
+        unset MVK_CONFIG_PIPELINE_CACHE_BACKGROUND_WORKERS
+    fi
     # Apple's Metal performance HUD (Settings > Performance): FPS, frame and GPU time on every Metal
     # window, in all graphics modes. Its log (one line per frame in the macOS log, collected by
     # perf_start) needs the HUD on.
@@ -469,6 +487,11 @@ cmd_run() {   # gryphlink|direct [--graphics MODE] [-- game args]
         echo "# Gryphfield $kind launch, $(date)"
         echo "# engine: $(engine_version_json)"
         echo "# graphics: $MODE (tree $TREE), WINEDEBUG=$WINEDEBUG, ROSETTA_ADVERTISE_AVX=${ROSETTA_ADVERTISE_AVX:-0}, CX_HIDE_BUILTIN_VERSION_RESOURCES=${CX_HIDE_BUILTIN_VERSION_RESOURCES:-0}, WINE_D3D_CONFIG=${WINE_D3D_CONFIG:-}, diagnostics:${DIAG:- none}"
+        if [ "$MODE" = vulkan ]; then
+            # Allow-list only; never dump the full environment into a shareable log. These
+            # are launch inputs, not proof of the library loaded or app layer-setting overrides.
+            echo "# MoltenVK env: search=$DYLD_FALLBACK_LIBRARY_PATH; MVK_CONFIG_DEBUG=${MVK_CONFIG_DEBUG:-unset}; MVK_DEBUG=${MVK_DEBUG:-unset}; MVK_CONFIG_LOG_LEVEL=${MVK_CONFIG_LOG_LEVEL:-unset}; MVK_CONFIG_RESUME_LOST_DEVICE=${MVK_CONFIG_RESUME_LOST_DEVICE:-unset}; MVK_CONFIG_PIPELINE_CACHE_BACKGROUND_WORKERS=${MVK_CONFIG_PIPELINE_CACHE_BACKGROUND_WORKERS:-unset}; MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS=${MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS:-unset}; MTL_DEBUG_LAYER=${MTL_DEBUG_LAYER:-unset}"
+        fi
         echo "# GRYPHLINK $version; game args: ${GAME_ARGS[*]} ${EXTRA[*]}; log limit $LOG_CAP_MB MB"
     } > "$WLOG"
     printf '%s %s\n' "$kind" "$MODE" > "$SUPPORT/last-run"

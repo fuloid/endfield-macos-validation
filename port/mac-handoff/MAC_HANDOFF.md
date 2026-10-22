@@ -135,6 +135,10 @@ The optional Vulkan path uses the pinned MoltenVK 1.4.2 + SPIRV-Cross patch set.
 
 MoltenVK patch `0007` advances completion when a newer presentation is queued and can synthesize completion after a one-second grace period. This is a behavior-changing workaround that needs presentation/frame-pacing testing; a queued frame alone does not establish display completion under the [Vulkan presentation-wait contract](https://docs.vulkan.org/refpages/latest/refpages/source/vkWaitForPresentKHR.html). The shader barrier patch also needs MSL 3.2+ and GPU validation. Preserve all other recipe dependencies if comparing builds with and without `0007`.
 
+### Vulkan lighting-loss diagnostics (2026-10-23)
+
+The M4 report of persistent dark scenery has no established root cause. Delivery is diagnostics, not a rendering fix: `mvk_debug` (boolean, default false) enables MoltenVK debug/encoder-error logging; `mvk_background_compilation` (boolean, default true) disables patch `0004`'s background workers/replay when false. Both apply only in Vulkan mode, from the next game launch. The engine records the relevant launch environment in the Wine log. Existing stock-MoltenVK, argument-buffer and Metal-validation switches provide further comparisons. See [VULKAN_LIGHTING.md](VULKAN_LIGHTING.md) for ranked code evidence, UI help text, tester steps and log lines to return. All seven MoltenVK patches and the pinned SPIRV-Cross patch were checked against fresh upstream sources; no Metal/game test or CI run was performed.
+
 ## Evidence and acceptance
 
 `verification.json` records source revisions, individual patch results, compiler identity, input hashes, kernel export checks, and helper/control-test output. Both Rosetta helpers were extracted from the freshly patched source for the tests; the earlier saved copies match exactly. All 8,735 NOP checks and 11 XGETBV checks pass with warnings treated as errors.
