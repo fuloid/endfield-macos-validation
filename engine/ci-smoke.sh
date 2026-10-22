@@ -161,7 +161,7 @@ for mode in dxmt d3dmetal; do
     check "$mode: HUD collector flushed and stopped" grep -q '^# Collected ' "$OUT/hud-$mode.log"
     if [ "$rc" = 0 ]; then
         check "$mode: real D3D11 device and 240 presented frames" grep -q '^presented_frames=240' "$OUT/device-$mode.log"
-    elif { [ "$rc" = 2 ] || [ "$rc" = 137 ]; } && { grep -qi 'Paravirtual' "$OUT/device-$mode.log" || system_profiler SPDisplaysDataType | grep -qiE 'Paravirtual|Virtual'; }; then
+    elif { [ "$rc" = 2 ] || [ "$rc" = 137 ]; } && { grep -qi 'Paravirtual' "$OUT/device-$mode.log" || [ "$(sysctl -n kern.hv_vmm_present 2>/dev/null)" = 1 ] || system_profiler SPDisplaysDataType | grep -qiE 'Paravirtual|Virtual'; }; then
         # The VM's paravirtual GPU either refuses device creation (exit 2) or hangs it until the
         # fixture is killed (137). Both modes do this here, so it says nothing about a real Mac.
         note "- LIMITATION $mode: CI's paravirtual GPU did not give a D3D11 device (exit $rc); see device-$mode.log (not a gameplay pass)."
