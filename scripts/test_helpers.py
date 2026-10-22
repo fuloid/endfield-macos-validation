@@ -38,9 +38,11 @@ def main():
         url = f'https://raw.githubusercontent.com/wine-mirror/wine/{REV}/{SIGNAL}'
         with urllib.request.urlopen(url, timeout=90) as response:
             target.write_bytes(response.read())
-        for patch in sorted((HANDOFF / 'patches').glob('000[12]-*.patch')):
-            run(['git', 'apply', '--check', patch], cwd=work)
-            run(['git', 'apply', patch], cwd=work)
+        signal_patches = sorted((HANDOFF / 'patches').glob('000[123]-*.patch'))
+        signal_patches.append(HANDOFF / 'patches/0022-ntdll-log-rosetta-nop-skips-on-their-own-channel.patch')
+        for patch in signal_patches:
+            run(['git', 'apply', '--include=' + SIGNAL, '--check', patch], cwd=work)
+            run(['git', 'apply', '--include=' + SIGNAL, patch], cwd=work)
         source = target.read_text()
     if args.source:
         window_source = (args.source / 'server/window.c').read_text()

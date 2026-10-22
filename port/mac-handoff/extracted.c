@@ -50,6 +50,6 @@ static BOOL rosetta_skip_long_nop( ucontext_t *sigcontext )
     if (i > len || i > 15) return FALSE;
 
     RIP_sig(sigcontext) += i;
-    TRACE_(seh)( "skipped %u-byte NOP\n", i );
+    TRACE_(rosetta)( "skipped %u-byte NOP\n", i );
     return TRUE;
 }
