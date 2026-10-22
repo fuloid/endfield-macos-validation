@@ -1,13 +1,16 @@
 From: Gryphfield
-Subject: [PATCH] Do not force the Metal layer opaque for layered windows.
+Subject: [PATCH] Do not force the Metal layer opaque for windows composited with their alpha.
 
 DXMT sets CAMetalLayer.opaque = true when it creates a presenter, so the alpha channel
-of every swapchain is ignored and transparent pixels show black. A layered window
-(WS_EX_LAYERED), which is how a launcher gets rounded corners and a transparent
-background, now gets a non-opaque layer. All other windows, including the game, stay
-opaque. DXMT_TRANSPARENT_WINDOWS=1 or 0 forces the layer non-opaque or opaque.
+of every swapchain is ignored and transparent pixels show black. On Windows, an app that
+calls DwmEnableBlurBehindWindow (Qt does for translucent GPU windows such as GRYPHLINK,
+for its rounded corners and soft edges) is composited with the alpha of its content.
+Gryphfield's Wine (patch 0023) records that call as the window property
+__wine_dwm_content_alpha and makes the NSWindow non-opaque; such a window now gets a
+non-opaque layer too. All other windows, including the game, stay opaque.
+DXMT_TRANSPARENT_WINDOWS=1 or 0 forces the layer non-opaque or opaque.
 
-Applies to DXMT v0.80. Wine must also make the NSWindow non-opaque; DXMT does not.
+Applies to DXMT v0.80.
 ---
 diff --git a/src/d3d11/d3d11_swapchain.cpp b/src/d3d11/d3d11_swapchain.cpp
 index 5e9404d..c9a5e7e 100644
@@ -19,7 +22,7 @@ index 5e9404d..c9a5e7e 100644
                                   pDevice->GetDXMTDevice().queue().cmd_library,
 -                                 scale_factor, desc_.SampleDesc.Count));
 +                                 scale_factor, desc_.SampleDesc.Count,
-+                                 (GetWindowLongW(hWnd, GWL_EXSTYLE) & WS_EX_LAYERED) != 0));
++                                 GetPropW(hWnd, L"__wine_dwm_content_alpha") != nullptr));
  
      frame_latency = kSwapchainLatency;
      present_semaphore_ = CreateSemaphore(nullptr, frame_latency,
@@ -50,8 +53,8 @@ index 87624a8..75e3b19 100644
    layer_.getProps(layer_props_);
    layer_props_.device = device;
 -  layer_props_.opaque = true;
-+  // The layer is opaque (alpha is ignored) unless the window is layered (GRYPHLINK's launcher). DXMT_TRANSPARENT_WINDOWS=1
-+  // or 0 forces it either way.
++  // The layer is opaque (alpha is ignored) unless the app asked for DWM blur-behind (GRYPHLINK's launcher).
++  // DXMT_TRANSPARENT_WINDOWS=1 or 0 forces it either way.
 +  if (const char *force = std::getenv("DXMT_TRANSPARENT_WINDOWS"))
 +    transparent = force[0] == '1';
 +  layer_props_.opaque = !transparent;

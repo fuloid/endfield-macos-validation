@@ -23,8 +23,12 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  DXMT_VERSION: v0.80
-  DXMT_SHA256: 8f260e36b5739e68f3bad613381441385c4dc7b85b78ba8de653d5a6a264529d
+  # DXMT v0.80 (589adb78) built by "Build DXMT (experiment)" with tools/dxmt/*.patch, frozen on R2.
+  # DXMT_LABEL is the tarball's top directory.
+  DXMT_VERSION: v0.80-gryphfield-1
+  DXMT_LABEL: dxmt-589adb780354-gryphfield
+  DXMT_URL: https://s.purin.my/akef/dxmt-v0.80-gryphfield-1.tar.xz
+  DXMT_SHA256: PENDING
   GRYPHLINK_URL: https://s.purin.my/akef/gryphlink-launcher.tar.xz
   STOCK_MVK_URL: https://github.com/KhronosGroup/MoltenVK/releases/download/v1.4.2/MoltenVK-macos.tar
   STOCK_MVK_SHA256: f95765a6229cb7b915990a2890ce12ebe36a730b021545d3d52ae69ce4c4024e
@@ -99,9 +103,9 @@ jobs:
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP"
-          curl -fsSL -o dxmt.tar.gz "https://github.com/3Shain/dxmt/releases/download/$DXMT_VERSION/dxmt-$DXMT_VERSION-builtin.tar.gz"
-          echo "$DXMT_SHA256  dxmt.tar.gz" | shasum -a 256 -c
-          mkdir dxmt && tar -xzf dxmt.tar.gz -C dxmt
+          curl -fsSL -o dxmt.tar.xz "$DXMT_URL"
+          echo "$DXMT_SHA256  dxmt.tar.xz" | shasum -a 256 -c
+          mkdir dxmt && tar -xJf dxmt.tar.xz -C dxmt
           curl -fsSL -o gryphlink.tar.xz "$GRYPHLINK_URL"
           echo "$GRYPHLINK_SHA256  gryphlink.tar.xz" | shasum -a 256 -c
           mkdir gryphlink && tar -xJf gryphlink.tar.xz -C gryphlink
@@ -121,7 +125,7 @@ jobs:
       - name: Assemble the engine
         env:
           WINE_INSTALL: ${{ runner.temp }}/wine-validation/wine-install
-          DXMT_DIR: ${{ runner.temp }}/dxmt/${{ env.DXMT_VERSION }}
+          DXMT_DIR: ${{ runner.temp }}/dxmt/${{ env.DXMT_LABEL }}
           MVK_DIR: ${{ runner.temp }}/moltenvk
           STOCK_MVK_DYLIB: ${{ runner.temp }}/stock-mvk/MoltenVK/MoltenVK/dynamic/dylib/macOS/libMoltenVK.dylib
           GRYPHLINK_DIR: ${{ runner.temp }}/gryphlink/GRYPHLINK

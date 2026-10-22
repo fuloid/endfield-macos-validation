@@ -130,6 +130,16 @@ def main():
         if not match or int(match.group(1)) <= 0x1020:
             raise RuntimeError('RegSaveKey output is not padded past a hive header (0021)')
         report.update(regsave_padded=True)
+        # 0023: DwmEnableBlurBehindWindow marks the window for compositing with its content's alpha.
+        execute('compile-blur-behind-probe', ['x86_64-w64-mingw32-gcc', '-O2', '-static', '-Wall', '-Wextra',
+                                              '-Werror', ROOT / 'tools/blur-behind-probe/blur-behind-probe.c',
+                                              '-o', out / 'blur-behind-probe.exe', '-ldwmapi', '-lgdi32'], 120)
+        execute('blur-behind-probe', [wine, out / 'blur-behind-probe.exe'], 90)
+        blur = (out / 'blur-behind-probe.log').read_text(errors='replace')
+        print(blur, flush=True)
+        if not re.search(r'^blur-behind enable=00000000 prop=0*1 disable=00000000 prop=0+$', blur, re.M):
+            raise RuntimeError('DwmEnableBlurBehindWindow does not mark the window (0023)')
+        report.update(blur_behind_marked=True)
         report.update(builtin_version_hiding_passed=True, process_name_link=links[0], passed=True)
     finally:
         (out / 'smoke.json').write_text(json.dumps(report, indent=2) + '\n')

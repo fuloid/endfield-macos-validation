@@ -1,0 +1,217 @@
+From: Gryphfield
+Subject: [PATCH] dwmapi, winemac.drv: Composite blur-behind windows with the alpha of their content.
+
+Qt makes a translucent GPU-drawn window (GRYPHLINK's launcher, for its rounded corners
+and translucent edge) layered at full opacity (LWA_ALPHA 255) and calls
+DwmEnableBlurBehindWindow with an empty blur region. DWM then blends each pixel of the
+window's D3D content by its alpha. Wine returned E_NOTIMPL and drew the window opaque,
+so every pixel with partial alpha showed black.
+
+dwmapi records the request as the window property __wine_dwm_content_alpha and sends
+SWP_FRAMECHANGED. winemac reads it with the other window properties; such a window
+becomes non-opaque, its Metal view loses the black layer background, and the GDI
+surface behind the Metal view is not drawn. No blur is applied. DXMT makes its Metal
+layer non-opaque for the same property (tools/dxmt/0001). Windows without it, the game
+included, are unchanged.
+---
+diff --git a/dlls/dwmapi/dwmapi_main.c b/dlls/dwmapi/dwmapi_main.c
+index 49e05cd..9f1e42e 100644
+--- a/dlls/dwmapi/dwmapi_main.c
++++ b/dlls/dwmapi/dwmapi_main.c
+@@ -162,9 +162,22 @@ HRESULT WINAPI DwmGetGraphicsStreamTransformHint(UINT uIndex, MilMatrix3x2D *pTr
+  */
+ HRESULT WINAPI DwmEnableBlurBehindWindow(HWND hWnd, const DWM_BLURBEHIND *pBlurBuf)
+ {
+-    FIXME("%p %p\n", hWnd, pBlurBuf);
++    TRACE("%p %p\n", hWnd, pBlurBuf);
+ 
+-    return E_NOTIMPL;
++    if (!pBlurBuf) return E_INVALIDARG;
++    if (!IsWindow(hWnd)) return E_HANDLE;
++
++    /* No blur, but like DWM, composite the window with the alpha channel of its content: apps
++     * such as Qt's translucent GPU windows rely on it for rounded corners and soft edges. The
++     * display driver reads the property when the frame changes. */
++    if (pBlurBuf->dwFlags & DWM_BB_ENABLE)
++    {
++        if (pBlurBuf->fEnable) SetPropW(hWnd, L"__wine_dwm_content_alpha", (HANDLE)1);
++        else RemovePropW(hWnd, L"__wine_dwm_content_alpha");
++        SetWindowPos(hWnd, 0, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE |
++                     SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
++    }
++    return S_OK;
+ }
+ 
+ /**********************************************************************
+diff --git a/dlls/winemac.drv/cocoa_window.m b/dlls/winemac.drv/cocoa_window.m
+index aa05c47..76c2cc2 100644
+--- a/dlls/winemac.drv/cocoa_window.m
++++ b/dlls/winemac.drv/cocoa_window.m
+@@ -255,6 +255,7 @@ static inline BOOL stage_manager_enabled(void)
+     - (void) wine_setBackingSize:(const int*)newBackingSize;
+ 
+     - (WineMetalView*) newMetalViewWithDevice:(id<MTLDevice>)device;
++    - (void) updateContentAlpha;
+     - (void) addCALayerHostViewWithContextId:(CAContextID)contextId;
+     - (void) removeCALayerHostView:(CAContextID)contextId;
+ 
+@@ -279,6 +280,7 @@ static inline BOOL stage_manager_enabled(void)
+ @property (readonly, nonatomic) BOOL needsTransparency;
+ 
+ @property (nonatomic) BOOL usePerPixelAlpha;
++@property (nonatomic) BOOL useContentAlpha;
+ 
+ @property (assign, nonatomic) void* ime_update;
+ @property (nonatomic) BOOL commandDone;
+@@ -396,6 +398,14 @@ static inline BOOL stage_manager_enabled(void)
+         if (window.closing)
+             return;
+ 
++        /* The Metal view draws the whole window and its transparent pixels must show the
++           desktop, not the GDI surface (black where nothing was painted) behind it. */
++        if (window.useContentAlpha && _metalView)
++        {
++            layer.contents = nil;
++            return;
++        }
++
+         imageRect = layer.bounds;
+         imageRect.origin.x *= layer.contentsScale;
+         imageRect.origin.y *= layer.contentsScale;
+@@ -565,12 +575,27 @@ static inline BOOL stage_manager_enabled(void)
+         [self setAutoresizesSubviews:YES];
+         [self addSubview:view positioned:NSWindowBelow relativeTo:nil];
+         _metalView = view;
++        [self updateContentAlpha];
+ 
+         [(WineWindow*)self.window windowDidDrawContent];
+ 
+         return _metalView;
+     }
+ 
++    /* For a window composited with its content's alpha, the Metal layer has no black
++       background and the GDI surface behind it is not drawn. */
++    - (void) updateContentAlpha
++    {
++        BOOL contentAlpha = ((WineWindow*)self.window).useContentAlpha;
++
++        if (_metalView)
++        {
++            _metalView.layer.backgroundColor = contentAlpha ? NULL : CGColorGetConstantColor(kCGColorBlack);
++            if (contentAlpha) _metalView.layer.opaque = NO;
++        }
++        [self setNeedsDisplay:YES];
++    }
++
+     - (void) addCALayerHostViewWithContextId:(CAContextID)contextId
+     {
+         if (!_caLayerHosts)
+@@ -874,6 +899,7 @@ static inline BOOL stage_manager_enabled(void)
+     @synthesize drawnSinceShown;
+     @synthesize shapeChangedSinceLastDraw;
+     @synthesize usePerPixelAlpha;
++    @synthesize useContentAlpha;
+     @synthesize ime_update, commandDone;
+     @synthesize contentViewMaskLayer;
+ 
+@@ -1914,7 +1940,7 @@ static inline BOOL stage_manager_enabled(void)
+     - (BOOL) needsTransparency
+     {
+         WineContentView *view = self.contentView;
+-        return self.contentView.layer.mask || [view hasShapeImage] || self.usePerPixelAlpha ||
++        return self.contentView.layer.mask || [view hasShapeImage] || self.usePerPixelAlpha || self.useContentAlpha ||
+                 (gl_surface_mode == GL_SURFACE_BEHIND && [view hasGLDescendant]);
+     }
+ 
+@@ -3355,6 +3381,24 @@ void macdrv_set_window_alpha(WineWindow *window, CGFloat alpha)
+ }
+ }
+ 
++/***********************************************************************
++ *              macdrv_window_use_content_alpha
++ *
++ * Composite the window with the alpha channel of its Metal content, as DWM
++ * does after DwmEnableBlurBehindWindow.
++ */
++void macdrv_window_use_content_alpha(WineWindow *window, bool use_content_alpha)
++{
++@autoreleasepool
++{
++    OnMainThread(^{
++        window.useContentAlpha = use_content_alpha;
++        [window checkTransparency];
++        [(WineContentView*)[window contentView] updateContentAlpha];
++    });
++}
++}
++
+ /***********************************************************************
+  *              macdrv_window_use_per_pixel_alpha
+  */
+diff --git a/dlls/winemac.drv/macdrv.h b/dlls/winemac.drv/macdrv.h
+index 5ee84a2..2b4138a 100644
+--- a/dlls/winemac.drv/macdrv.h
++++ b/dlls/winemac.drv/macdrv.h
+@@ -240,6 +240,7 @@ struct macdrv_win_data
+     unsigned int        layered : 1;            /* is window layered and with valid attributes? */
+     unsigned int        ulw_layered : 1;        /* has UpdateLayeredWindow() been called for window? */
+     unsigned int        per_pixel_alpha : 1;    /* is window using per-pixel alpha? */
++    unsigned int        content_alpha : 1;      /* composited with its Metal content's alpha (DwmEnableBlurBehindWindow)? */
+     unsigned int        minimized : 1;          /* is window minimized? */
+     unsigned int        fullscreen : 1;         /* is the window visible rect fullscreen? (unrelated to native AppKit/Cocoa fullscreen) */
+ };
+diff --git a/dlls/winemac.drv/macdrv_cocoa.h b/dlls/winemac.drv/macdrv_cocoa.h
+index 19876a8..04b765d 100644
+--- a/dlls/winemac.drv/macdrv_cocoa.h
++++ b/dlls/winemac.drv/macdrv_cocoa.h
+@@ -488,6 +488,7 @@ extern void macdrv_window_set_shape_image(WineWindow *window, CGImageRef image);
+ extern void macdrv_set_window_shape(WineWindow *window, const CGRect *rects, int count);
+ extern void macdrv_set_window_alpha(WineWindow *window, CGFloat alpha);
+ extern void macdrv_window_use_per_pixel_alpha(WineWindow *window, bool use_per_pixel_alpha);
++extern void macdrv_window_use_content_alpha(WineWindow *window, bool use_content_alpha);
+ extern void macdrv_set_window_mask(WineWindow *window, CGRect rect);
+ extern void macdrv_give_cocoa_window_focus(WineWindow *window, bool activate);
+ extern void macdrv_set_window_min_max_sizes(WineWindow *window, CGSize min_size, CGSize max_size);
+diff --git a/dlls/winemac.drv/window.c b/dlls/winemac.drv/window.c
+index 06bfe8a..e8d6e9f 100644
+--- a/dlls/winemac.drv/window.c
++++ b/dlls/winemac.drv/window.c
+@@ -322,11 +322,14 @@ WineWindow *macdrv_get_cocoa_window(HWND hwnd, bool require_on_screen)
+  */
+ static void set_cocoa_window_properties(struct macdrv_win_data *data)
+ {
++    static const WCHAR content_alpha_prop[] =
++        {'_','_','w','i','n','e','_','d','w','m','_','c','o','n','t','e','n','t','_','a','l','p','h','a',0};
+     DWORD style, ex_style;
+     HWND owner;
+     WineWindow *owner_win;
+     struct macdrv_window_features wf;
+     struct macdrv_window_state state;
++    BOOL content_alpha;
+ 
+     style = NtUserGetWindowLongW(data->hwnd, GWL_STYLE);
+     ex_style = NtUserGetWindowLongW(data->hwnd, GWL_EXSTYLE);
+@@ -344,6 +347,15 @@ static void set_cocoa_window_properties(struct macdrv_win_data *data)
+     macdrv_set_cocoa_window_state(data->cocoa_window, &state);
+     if (state.minimized_valid)
+         data->minimized = state.minimized;
++
++    /* set by dwmapi's DwmEnableBlurBehindWindow */
++    content_alpha = NtUserGetProp(data->hwnd, content_alpha_prop) != NULL;
++    if (!data->content_alpha != !content_alpha)
++    {
++        TRACE("setting window %p/%p content alpha to %d\n", data->hwnd, data->cocoa_window, content_alpha);
++        macdrv_window_use_content_alpha(data->cocoa_window, content_alpha);
++        data->content_alpha = content_alpha;
++    }
+ }
+ 
+ 
+@@ -600,6 +612,7 @@ static void destroy_cocoa_window(struct macdrv_win_data *data)
+     macdrv_destroy_cocoa_window(data->cocoa_window);
+     data->cocoa_window = 0;
+     data->on_screen = FALSE;
++    data->content_alpha = FALSE;  /* a new Cocoa window starts opaque */
+ }
+ 
+ 

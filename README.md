@@ -22,7 +22,7 @@ Requires Apple Silicon, macOS 15 or later and Rosetta 2. The app is signed ad ho
 | `port/mac-handoff/` | `build-mac.sh`, provenance, licenses, `SHA256SUMS` and per-patch notes in `MAC_HANDOFF.md`. |
 | `engine/` | `gryphfield-engine` (the shell backend the UI calls), `assemble.sh` (builds the app's engine directory) and the Windows helpers `direct-launch` and `gryphfield-watch`. |
 | `scripts/` | CI helpers: dependency setup, the macOS smoke test, the launcher smoke test and portable helper tests. |
-| `tools/` | Small Windows probes the smoke test compiles and runs under Wine (syscall, version resource, RegSaveKey), plus DXMT patches. |
+| `tools/` | Small Windows probes the smoke test compiles and runs under Wine (syscall, version resource, RegSaveKey, DWM blur-behind), plus DXMT patches. |
 | `port/crossover-experimental/` | Separate experiment: CrossOver 26.3.0's Wine 11.0 with FineWine patches. Not used by the app. |
 
 The SwiftUI app lives on the `gryphfield-ui` branch.
@@ -38,6 +38,7 @@ The SwiftUI app lives on the `gryphfield-ui` branch.
 - `0020`: keep cross-process children of layered windows visible (GRYPHLINK; candidate).
 - `0021`: pad `RegSaveKey` output past a hive header so ACE's read does not fault (verified on a tester's Mac).
 - `0022`: log Rosetta NOP skips on their own `rosetta` debug channel instead of `seh`.
+- `0023`: windows that ask DWM for blur-behind (GRYPHLINK) are composited with their content's alpha (transparent, rounded corners).
 - `0101`–`0115`: upstream-11.19 port of FineWine's ACE-CORE driver series.
 
 `MAC_HANDOFF.md` has the details, sources and what each patch was verified against.
@@ -50,7 +51,7 @@ All macOS workflows are started manually from **Actions**.
 |---|---|
 | Validate Wine on macOS | Builds Wine with the patches (cached by patch hash), then runs the Rosetta probe and the smoke test. A push only runs the portable helper checks. Run this first after changing patches. |
 | Build Gryphfield.app | Reuses that cached Wine build, adds DXMT, patched MoltenVK, GRYPHLINK and the UI (`ui_ref`, default `gryphfield-ui`), runs the engine smoke test and uploads `Gryphfield-macos.zip`. |
-| Build DXMT (experiment) | Builds DXMT from source, optionally with the layered-window transparency patch. |
+| Build DXMT (experiment) | Builds DXMT from source with `tools/dxmt` patches (transparency for blur-behind windows). The app uses the frozen result from R2 (`DXMT_URL` in Build Gryphfield.app). |
 | Validate experimental CrossOver engine | Builds and packages the CrossOver experiment. |
 
 Runs upload logs and smoke results as artifacts.
