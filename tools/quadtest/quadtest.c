@@ -7,11 +7,13 @@
  * pixel in the bottom-left triangle (BL), the top-right triangle (TR) and the centre.
  *   quadtest.exe [frames] [93]   prints one PASS/FAIL line per case; exit code = failures;
  *                                "93" asks for feature level 9_3 only (anything else: any level)
- *   quadtest.exe [frames] [93|any] [case]   runs only case 1, 2, 3, 4, 6 or 7 (0: all)
+ *   quadtest.exe [frames] [93|any] [case]   runs only case 1, 2, 3, 4, 6, 7 or 8 (0: all)
  *   quadtest.exe [frames] [93|any] [case] hlsl   compiles the shaders at run time with the
  *                                d3dcompiler_47 it finds (Wine's is vkd3d's HLSL compiler)
- * QUADTEST_HOLD_MS=<ms> keeps presenting the immutable-strip frame afterwards, for a screenshot
- * of what reaches the screen (the backbuffer checks do not cover the present path).
+ * QUADTEST_HOLD_MS=<ms> keeps presenting a frame afterwards, for a screenshot of what reaches the
+ * screen (the backbuffer checks do not cover the present path): QUADTEST_HOLD_MODE=strip (red
+ * strip, default), textured (green offscreen texture copied with a strip) or clear (red clear,
+ * no draw).
  * By default the shaders are bytecode from Microsoft's compiler (quadtest_shaders.h, made by
  * genshaders.c on Windows), as GRYPHLINK's ANGLE ships precompiled shaders.
  */
@@ -60,6 +62,10 @@ static ID3D11RenderTargetView *rtv;
 static ID3D11Texture2D *backbuffer, *staging;
 static int failures;
 static int only_case;   /* 0: all cases */
+static ID3D11PixelShader *ps_red, *ps_tex;
+static ID3D11ShaderResourceView *offscreen_srv;
+static ID3D11RenderTargetView *offscreen_rtv;
+static ID3D11SamplerState *sampler;
 
 static int want(int n)
 {
@@ -113,6 +119,8 @@ static void begin(void)
     ID3D11DeviceContext_ClearRenderTargetView(ctx, rtv, black);
 }
 
+static DWORD expect = 0xff0000;   /* B8G8R8A8 read as 0xRRGGBB: red, or green for the textured copy */
+
 static void check(const char *name)
 {
     D3D11_MAPPED_SUBRESOURCE map;
@@ -131,7 +139,7 @@ static void check(const char *name)
     tr = pixel(&map, W - W / 8, H / 8);
     centre = pixel(&map, W / 2 + 3, H / 2 + 7);
     ID3D11DeviceContext_Unmap(ctx, (ID3D11Resource *)staging, 0);
-    ok = bl == 0xff0000 && tr == 0xff0000;
+    ok = bl == expect && tr == expect;
     printf("%s %-34s BL %06lx TR %06lx centre %06lx\n", ok ? "PASS" : "FAIL", name, bl, tr, centre);
     if (!ok) failures++;
     IDXGISwapChain_Present(swapchain, 0, 0);
@@ -243,6 +251,26 @@ static void run_cases(int frame)
         check(NAME("strip UpdateSubresource"));
         ID3D11Buffer_Release(vb);
     }
+    /* 8: ANGLE's copy to the backbuffer: an offscreen texture (cleared green) sampled onto a
+       full-window strip */
+    if (want(8))
+    {
+        static const float green[4] = {0.0f, 1.0f, 0.0f, 1.0f};
+
+        vb = make_buffer(D3D11_BIND_VERTEX_BUFFER, D3D11_USAGE_IMMUTABLE, sizeof(strip), strip);
+        ID3D11DeviceContext_ClearRenderTargetView(ctx, offscreen_rtv, green);
+        begin(); set_vb(vb, 0);
+        ID3D11DeviceContext_PSSetShader(ctx, ps_tex, NULL, 0);
+        ID3D11DeviceContext_PSSetShaderResources(ctx, 0, 1, &offscreen_srv);
+        ID3D11DeviceContext_PSSetSamplers(ctx, 0, 1, &sampler);
+        ID3D11DeviceContext_IASetPrimitiveTopology(ctx, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+        ID3D11DeviceContext_Draw(ctx, 4, 0);
+        expect = 0x00ff00;
+        check(NAME("strip textured copy"));
+        expect = 0xff0000;
+        ID3D11DeviceContext_PSSetShader(ctx, ps_red, NULL, 0);
+        ID3D11Buffer_Release(vb);
+    }
 #undef NAME
 }
 
@@ -336,6 +364,10 @@ int main(int argc, char **argv)
         vs_code = vs_4_0_level_9_3_code; vs_size = sizeof(vs_4_0_level_9_3_code);
         ps_code = ps_4_0_level_9_3_code; ps_size = sizeof(ps_4_0_level_9_3_code);
     }
+    if (level >= D3D_FEATURE_LEVEL_10_0)
+        ID3D11Device_CreatePixelShader(dev, ps_tex_4_0_code, sizeof(ps_tex_4_0_code), NULL, &ps_tex);
+    else
+        ID3D11Device_CreatePixelShader(dev, ps_tex_4_0_level_9_3_code, sizeof(ps_tex_4_0_level_9_3_code), NULL, &ps_tex);
     printf("creating shaders\n");
     if (FAILED(ID3D11Device_CreateVertexShader(dev, vs_code, vs_size, NULL, &vs)) ||
         FAILED(ID3D11Device_CreatePixelShader(dev, ps_code, ps_size, NULL, &ps)) ||
@@ -363,6 +395,24 @@ int main(int argc, char **argv)
     ID3D11DeviceContext_IASetInputLayout(ctx, layout);
     ID3D11DeviceContext_VSSetShader(ctx, vs, NULL, 0);
     ID3D11DeviceContext_PSSetShader(ctx, ps, NULL, 0);
+    ps_red = ps;
+    {
+        D3D11_TEXTURE2D_DESC off = tex_desc;
+        D3D11_SAMPLER_DESC sd = {0};
+        ID3D11Texture2D *offscreen;
+
+        off.Usage = D3D11_USAGE_DEFAULT;
+        off.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+        off.CPUAccessFlags = 0;
+        ID3D11Device_CreateTexture2D(dev, &off, NULL, &offscreen);
+        ID3D11Device_CreateRenderTargetView(dev, (ID3D11Resource *)offscreen, NULL, &offscreen_rtv);
+        ID3D11Device_CreateShaderResourceView(dev, (ID3D11Resource *)offscreen, NULL, &offscreen_srv);
+        sd.Filter = D3D11_FILTER_MIN_MAG_MIP_POINT;
+        sd.AddressU = sd.AddressV = sd.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+        sd.ComparisonFunc = D3D11_COMPARISON_NEVER;
+        sd.MaxLOD = D3D11_FLOAT32_MAX;
+        ID3D11Device_CreateSamplerState(dev, &sd, &sampler);
+    }
     ID3D11DeviceContext_RSSetState(ctx, rs);
 
     for (i = 0; i < frames; i++) run_cases(i);
@@ -374,13 +424,30 @@ int main(int argc, char **argv)
         ID3D11Buffer *vb = make_buffer(D3D11_BIND_VERTEX_BUFFER, D3D11_USAGE_IMMUTABLE, sizeof(strip), strip);
         MSG msg;
 
-        printf("holding\n");
+        const char *mode = getenv("QUADTEST_HOLD_MODE") ? getenv("QUADTEST_HOLD_MODE") : "strip";
+        static const float red[4] = {1.0f, 0.0f, 0.0f, 1.0f}, green[4] = {0.0f, 1.0f, 0.0f, 1.0f};
+
+        printf("holding %s\n", mode);
         while ((LONG)(end - GetTickCount()) > 0)
         {
             while (PeekMessageA(&msg, NULL, 0, 0, PM_REMOVE)) DispatchMessageA(&msg);
-            begin(); set_vb(vb, 0);
-            ID3D11DeviceContext_IASetPrimitiveTopology(ctx, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
-            ID3D11DeviceContext_Draw(ctx, 4, 0);
+            begin();
+            if (!strcmp(mode, "clear"))   /* no draw: only the present path */
+                ID3D11DeviceContext_ClearRenderTargetView(ctx, rtv, red);
+            else
+            {
+                set_vb(vb, 0);
+                ID3D11DeviceContext_IASetPrimitiveTopology(ctx, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+                if (!strcmp(mode, "textured"))
+                {
+                    ID3D11DeviceContext_ClearRenderTargetView(ctx, offscreen_rtv, green);
+                    ID3D11DeviceContext_OMSetRenderTargets(ctx, 1, &rtv, NULL);
+                    ID3D11DeviceContext_PSSetShader(ctx, ps_tex, NULL, 0);
+                    ID3D11DeviceContext_PSSetShaderResources(ctx, 0, 1, &offscreen_srv);
+                    ID3D11DeviceContext_PSSetSamplers(ctx, 0, 1, &sampler);
+                }
+                ID3D11DeviceContext_Draw(ctx, 4, 0);
+            }
             IDXGISwapChain_Present(swapchain, 1, 0);
             Sleep(30);
         }

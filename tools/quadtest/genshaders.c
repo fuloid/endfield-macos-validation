@@ -12,7 +12,10 @@ static const char shader_src[] =
     "struct VSIn { float2 pos : POSITION; float2 tex : TEXCOORD0; };\n"
     "struct VSOut { float4 pos : SV_POSITION; float2 tex : TEXCOORD0; };\n"
     "VSOut vs(VSIn i) { VSOut o; o.pos = float4(i.pos, 0.0, 1.0); o.tex = i.tex; return o; }\n"
-    "float4 ps(VSOut i) : SV_TARGET { return float4(1.0, 0.0, 0.0, 1.0); }\n";
+    "float4 ps(VSOut i) : SV_TARGET { return float4(1.0, 0.0, 0.0, 1.0); }\n"
+    "Texture2D tex : register(t0);\n"
+    "SamplerState smp : register(s0);\n"
+    "float4 ps_tex(VSOut i) : SV_TARGET { return tex.Sample(smp, i.tex); }\n";
 
 static void emit(FILE *out, compile_fn compile, const char *entry, const char *target, const char *name)
 {
@@ -45,6 +48,8 @@ int main(void)
     emit(out, compile, "ps", "ps_4_0", "ps_4_0_code");
     emit(out, compile, "vs", "vs_4_0_level_9_3", "vs_4_0_level_9_3_code");
     emit(out, compile, "ps", "ps_4_0_level_9_3", "ps_4_0_level_9_3_code");
+    emit(out, compile, "ps_tex", "ps_4_0", "ps_tex_4_0_code");
+    emit(out, compile, "ps_tex", "ps_4_0_level_9_3", "ps_tex_4_0_level_9_3_code");
     fclose(out);
     return 0;
 }

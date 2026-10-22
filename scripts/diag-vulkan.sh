@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # Half-drawn GRYPHLINK window in wined3d (Vulkan renderer) mode: quadtest (tools/quadtest) one case
-# per process, at feature level 9_3 (GRYPHLINK's path on MoltenVK) and the highest level, with the
-# shaders from Microsoft's compiler; once with Wine's run-time HLSL compiler (earlier runs crashed
-# in vkCreateGraphicsPipelines that way); DXMT as the reference; a screenshot of what a presented
-# frame looks like on screen; and MoltenVK's converted MSL for the 9_3 strip.
+# per process with shaders from Microsoft's compiler, including ANGLE's textured copy to the
+# backbuffer (case 8), then screenshots of presented frames (strip, textured copy, clear only) to
+# see whether the triangle is lost on the way to the screen, and MoltenVK's converted MSL.
 #   bash scripts/diag-vulkan.sh <engine-dir> <quadtest.exe> <output-dir>
 set -uo pipefail
 ENGINE="${1:?engine dir}"
@@ -42,34 +41,27 @@ run_qt() {   # label tree d3d-config hold-ms -- quadtest args...; extra env come
 
 note '## quadtest under wined3d (Vulkan) / MoltenVK'
 note ''
-note 'Microsoft bytecode, one case per process:'
-for level in 93 any; do
-    for c in 1 2 3 4 6 7; do
-        run_qt "vk-$level-case$c" "$ENGINE/wine" renderer=vulkan 0 -- 1 "$level" "$c"
-    done
+note 'Microsoft bytecode, one case per process (the VM reaches only 9_3 through MoltenVK):'
+for c in 1 2 3 4 6 7 8; do
+    run_qt "vk-93-case$c" "$ENGINE/wine" renderer=vulkan 0 -- 1 93 "$c"
 done
 note ''
-note 'Wine run-time HLSL compiler (vkd3d), case 1:'
-QT_WINEDEBUG='err+all,fixme-all,+seh' run_qt vk-93-case1-hlsl "$ENGINE/wine" renderer=vulkan 0 -- 1 93 1 hlsl
-QT_WINEDEBUG='err+all,fixme-all,+seh' run_qt vk-any-case1-hlsl "$ENGINE/wine" renderer=vulkan 0 -- 1 any 1 hlsl
-note ''
-note 'DXMT reference (all cases):'
-run_qt dxmt-any "$ENGINE/wine-dxmt" '' 0 -- 1 any 0
-note ''
-note 'What reaches the screen (screenshots in the artifact):'
-for level in 93 any; do
-    run_qt "vk-$level-hold" "$ENGINE/wine" renderer=vulkan 9000 -- 1 "$level" 1 &
+note 'What reaches the screen (screenshots in the artifact, taken once quadtest prints "holding"):'
+shot() {   # label tree d3d-config hold-mode
+    local label=$1 i
+    QUADTEST_HOLD_MODE=$4 run_qt "$label" "$2" "$3" 40000 -- 1 93 8 &
     pid=$!
-    sleep 6
-    screencapture -x "$OUT/screen-vk-$level.png" 2>/dev/null
+    for i in $(seq 1 120); do grep -q '^holding' "$OUT/qt-$label.txt" 2>/dev/null && break; sleep 1; done
+    sleep 3
+    screencapture -x "$OUT/screen-$label.png" 2>/dev/null
+    note "  - screenshot screen-$label.png, $i s after start"
     wait $pid
-done
-run_qt dxmt-hold "$ENGINE/wine-dxmt" '' 9000 -- 1 any 1 &
-pid=$!
-sleep 6
-screencapture -x "$OUT/screen-dxmt.png" 2>/dev/null
-wait $pid
+}
+shot vk-hold-strip "$ENGINE/wine" renderer=vulkan strip
+shot vk-hold-textured "$ENGINE/wine" renderer=vulkan textured
+shot vk-hold-clear "$ENGINE/wine" renderer=vulkan clear
+shot dxmt-hold-strip "$ENGINE/wine-dxmt" '' strip
 note ''
-note 'MoltenVK debug (converted MSL), 9_3 strip:'
-MVK_CONFIG_LOG_LEVEL=4 MVK_CONFIG_DEBUG=1 run_qt vk-93-case1-mvkdebug "$ENGINE/wine" renderer=vulkan 0 -- 1 93 1
+note 'MoltenVK debug (converted MSL), 9_3 textured copy:'
+MVK_CONFIG_LOG_LEVEL=4 MVK_CONFIG_DEBUG=1 run_qt vk-93-case8-mvkdebug "$ENGINE/wine" renderer=vulkan 0 -- 1 93 8
 exit 0
