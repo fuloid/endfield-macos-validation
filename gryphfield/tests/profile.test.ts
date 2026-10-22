@@ -119,8 +119,8 @@ test("confirmation requires Start, Cancel preserves settings, and duplicate capt
   const draft = s.model.debugLogging;
   s = await capture(app, s);
   assert.equal(s.effects.spawns.length, 0);
-  // Wrapped text may reach the snapshot as several widgets, so read the dialog's words as one text.
-  const shown = s.widgets.map(w => w.text).join(" ").replace(/\s+/g, " ");
+  // Static text is exposed through the widget name (text is for inputs), possibly split over lines.
+  const shown = s.widgets.map(w => `${w.name} ${w.text}`).join(" ").replace(/\s+/g, " ");
   assert.match(shown, /5 seconds/, shown);
   assert.match(shown, /10 seconds/, shown);
   assert.match(shown, /macOS may prevent/, shown);
