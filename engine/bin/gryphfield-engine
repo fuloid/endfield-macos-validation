@@ -161,11 +161,16 @@ use_wine() {   # mode
     else
         unset CX_HIDE_BUILTIN_VERSION_RESOURCES
     fi
+    # Detailed logging: DLL loads, processes and the kernel driver. The full exception trace
+    # (+seh) is a separate switch; Endfield's protector raises exceptions constantly, so it makes
+    # logs of 50 MB and more. Rosetta NOP skips have their own channel (+rosetta, patch 0022).
     if [ "$(cfg debug_logging false)" = true ]; then
-        export WINEDEBUG='+seh,+loaddll,+ntoskrnl,+process'
+        WINEDEBUG='fixme-all,err+all,warn+seh,+loaddll,+ntoskrnl,+process'
     else
-        export WINEDEBUG='fixme-all,err+all,warn+seh'
+        WINEDEBUG='fixme-all,err+all,warn+seh'
     fi
+    if [ "$(cfg exception_trace false)" = true ]; then WINEDEBUG="$WINEDEBUG,+seh"; fi
+    export WINEDEBUG
     unset WINE_D3D_CONFIG
     GAME_ARGS=()
     case "$MODE" in
@@ -186,7 +191,8 @@ use_wine() {   # mode
     fi
     if [ "$(cfg metal_validation false)" = true ]; then
         # Findings go to stderr (the Wine log) instead of stopping the process.
-        export MTL_DEBUG_LAYER=1 MTL_DEBUG_LAYER_ERROR_MODE=nslog MTL_DEBUG_LAYER_WARNING_MODE=nslog                MVK_CONFIG_LOG_LEVEL=4; DIAG="$DIAG metal-validation"
+        # Errors only: the warnings ("redundant set...", "unused binding") were ~240,000 lines a session.
+        export MTL_DEBUG_LAYER=1 MTL_DEBUG_LAYER_ERROR_MODE=nslog MTL_DEBUG_LAYER_WARNING_MODE=ignore MVK_CONFIG_LOG_LEVEL=4; DIAG="$DIAG metal-validation"
     else
         unset MTL_DEBUG_LAYER MTL_DEBUG_LAYER_ERROR_MODE MTL_DEBUG_LAYER_WARNING_MODE MVK_CONFIG_LOG_LEVEL
     fi

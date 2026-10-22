@@ -32,7 +32,7 @@ def main():
     external = prefix / 'lib/external'
     env = dict(os.environ, WINEPREFIX=str(args.work / 'ci-prefix'), WINEARCH='win64',
                ROSETTA_ADVERTISE_AVX='1', WINEFSYNC='0', WINEESYNC='0', WINENTSYNC='0',
-               WINEDLLOVERRIDES='mscoree,mshtml,winedbg.exe=', WINEDEBUG='+seh',
+               WINEDLLOVERRIDES='mscoree,mshtml,winedbg.exe=', WINEDEBUG='+seh,+rosetta',
                DYLD_FALLBACK_LIBRARY_PATH=f'{external}:/usr/lib')
     report = {'host': platform.platform(), 'architecture': platform.machine(), 'tests': {},
               'scope': 'Wine/Rosetta CPU/exception smoke tests only; no graphics or game.'}

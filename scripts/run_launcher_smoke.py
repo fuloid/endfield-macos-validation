@@ -94,7 +94,7 @@ class Run:
         self.env = dict(os.environ, WINEPREFIX=str(self.prefix), WINEARCH='win64',
                         ROSETTA_ADVERTISE_AVX='1', WINEFSYNC='0', WINEESYNC='0', WINENTSYNC='0',
                         WINEDLLOVERRIDES='mscoree,mshtml,winedbg.exe=',
-                        WINEDEBUG='+seh,+loaddll,+ntoskrnl,+process')
+                        WINEDEBUG='+seh,+rosetta,+loaddll,+ntoskrnl,+process')
         self.quiet = dict(self.env, WINEDEBUG='-all')
         self.report = {'host': platform.platform(), 'steps': [], 'markers': {}, 'unity': {},
                        'clicks': {}, 'verdict': 'unknown', 'probable_reason': None}

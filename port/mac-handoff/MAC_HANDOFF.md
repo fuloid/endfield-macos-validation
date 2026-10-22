@@ -26,7 +26,8 @@ Apply exactly these patches in filename order (`build-mac.sh prepare` does this)
 - `0018` (CrossOver 26.3 CW Hacks 22144, 13438; FineWine `ab8b9e9` stale-link fix): child processes are exec'd through a link named after the exe in `$TMPDIR/winetemp-<loader inode>-.../` (next to an `ntdll.so` symlink), and the loader rewrites `CFBundleName` in its embedded Info.plist, so the Dock, Activity Monitor and the application menu show "Endfield"/"GRYPHLINK" instead of "wine". `wine_info.plist` gets a padding comment for 32 characters.
 - `0019` (CrossOver 26.3 CW Hack 25964): winemac puts the largest program icon on a macOS-style rounded square (Apple icon grid, with shadow) for the Dock. The mask is drawn instead of loaded from CrossOver.app.
 - `0020` (DWProton `fc17f43`): do not clip cross-process children of layered windows to the parent's restricted surface rectangle. Candidate for missing launcher content; real macOS launcher rendering remains unverified.
-- `0021` (Gryphfield, ACE crash at world load): `RegSaveKey` output is padded with blank lines to 0x2000 bytes. ACE-Base64.dll saves `Wow6432Node\CLSID` and reads 0x1000 bytes into the file looking for a binary hive (`hbin`); with a 64-bit-only build the text file is 381 bytes and the read faults. Builds with i386 support (CrossOver) have a file over 4 KB. `load_keys()` skips blank lines, so the loader still accepts the file. Checked by `tools/regsave-probe`.
+- `0021` (Gryphfield, ACE crash at world load): `RegSaveKey` output is padded with blank lines to 0x2000 bytes. ACE-Base64.dll saves `Wow6432Node\CLSID` and reads 0x1000 bytes into the file looking for a binary hive (`hbin`); with a 64-bit-only build the text file is 381 bytes and the read faults. Builds with i386 support (CrossOver) have a file over 4 KB. `load_keys()` skips blank lines, so the loader still accepts the file. Checked by `tools/regsave-probe`. Verified on a tester's Mac (2026-10-21): the game world loads.
+- `0022` (Gryphfield, log size): `0001`'s NOP-skip trace moves from the `seh` channel to `rosetta`. VMProtect code runs these NOPs constantly; one `+seh` game log had 212,000 such lines. Use `WINEDEBUG=+seh,+rosetta` to see them.
 - `0101`–`0115`: upstream-11.19 port of FineWine's `ace-core` series (FineWine `cc4cefa`, 2026-10-15). The game's late-2026 `ACE-CORE*.sys` driver replaced `ACE-BASE.sys`; without this series it bug-checks at `DriverEntry` (`KeBugCheckEx 0x65636157`) and the game does not launch. Ported: `0001` (new imports), `0003` (kernel return address for `DriverInit`, the entry bugcheck fix), `0004`, `0005`, `0006` (real `PsGetProcessExitStatus`), `0007` (an `lsass.exe` process; here wineboot starts upstream's `SamSs` service), `0010` (section views stay mapped while a locked MDL uses them), `0012`, `0014`, `0015`. Already in upstream 11.19 and omitted: `0002`, `0008`, `0009`, `0011`, `0013`, `0016`. Not ported: `0017`–`0019`, which FineWine tested and found did not change the outcome. Details: `acecore-verification.json` and `AUDIT.md`.
 
 The complete selection applies with normal context to a fresh snapshot and reproduces the reviewed tree exactly. Wine 11.19 already exports the kernel functions covered by the em-backports series; do not reapply those old patches. Export presence and source review do not prove ACE compatibility.
@@ -89,7 +90,7 @@ export DYLD_FALLBACK_LIBRARY_PATH="$WORK_DIR/wine-install/lib/external:/usr/lib"
 file "$WINEBIN"
 "$WINEBIN" --version
 "$WINEBIN" wineboot -u > "$WORK_DIR/wineboot.log" 2>&1
-WINEDEBUG=+seh "$WINEBIN" "$PWD/rosetta_probe.exe" > "$WORK_DIR/rosetta-probe.log" 2>&1
+WINEDEBUG=+seh,+rosetta "$WINEBIN" "$PWD/rosetta_probe.exe" > "$WORK_DIR/rosetta-probe.log" 2>&1
 cat "$WORK_DIR/rosetta-probe.log"
 ```
 
@@ -97,7 +98,7 @@ Start Wine directly as above, not through `arch -x86_64`: Wine is x86_64, so Ros
 
 Expected: a working x86_64 Wine runtime and **eight passing probe checks**. The probe executes actual machine instructions and handles Windows exceptions; it is separate from the mocked helper tests. It covers five NOP forms (including ENDBR64 and `0F 1F /1`), XGETBV, `mov rax,cr3` yielding `c0000096`, and UD2 yielding `c000001d`. NOP faults should be consumed by Wine, not reach the program's exception handler. It does not load ACE or prove kernel-driver support.
 
-On a Rosetta release that faults on these forms, expect `skipped ...-byte NOP` and `emulated xgetbv` in the SEH trace. If Rosetta executes an instruction itself, no helper trace is expected. Missing trace lines alone are not a failure. For macOS 15+, the emulation returns CrossOver's `0xe7`; that is not proof of AVX-512 support. Apple explicitly [excludes AVX-512](https://developer.apple.com/documentation/apple-silicon/about-the-rosetta-translation-environment).
+On a Rosetta release that faults on these forms, expect `skipped ...-byte NOP` (`rosetta` channel) and `emulated xgetbv` (`seh` channel) in the trace. If Rosetta executes an instruction itself, no helper trace is expected. Missing trace lines alone are not a failure. For macOS 15+, the emulation returns CrossOver's `0xe7`; that is not proof of AVX-512 support. Apple explicitly [excludes AVX-512](https://developer.apple.com/documentation/apple-silicon/about-the-rosetta-translation-environment).
 
 The supplied probe executable was compiled and passed all eight checks on native Windows as a control. To rebuild it on the Mac:
 

@@ -67,6 +67,7 @@ printf '{"debug_logging":true}\n' > "$OUT/home/config.json"
 launch dxmt 0
 # +loaddll prints 'Loaded L"...\winemetal.dll" at ...: builtin' when DXMT's bridge loads
 check 'DXMT: winemetal.dll loads in DXMT mode' grep -qE 'Loaded L".*winemetal\.dll"' "$OUT/wine-dxmt.log"
+check 'detailed logging leaves out the full exception trace' grep -q 'WINEDEBUG=fixme-all,err+all,warn+seh,+loaddll,+ntoskrnl,+process, ' "$OUT/wine-dxmt.log"
 if grep -q 'winemetal.dll.*not found' "$OUT/wine-dxmt.log" 2>/dev/null; then
     note '- FAIL DXMT: "winemetal.dll not found" in the log'
     failures=$((failures + 1))
@@ -94,11 +95,12 @@ check 'check-location accepts a writable folder' done_ok "$OUT/location-ok.jsonl
 /bin/bash "$E" check-location "$OUT/home/prefix/drive_c" > "$OUT/location-bad.jsonl" 2>&1
 # Diagnostics settings: all five non-default values reach the Wine environment
 check 'stock MoltenVK is bundled for the diagnostics setting'     lipo "$ENGINE/moltenvk-stock/libMoltenVK.dylib" -verify_arch x86_64
-printf '{"moltenvk_stock":true,"mvk_argument_buffers":false,"wined3d_csmt":false,"metal_validation":true,"hide_wine_versions":true}
+printf '{"moltenvk_stock":true,"mvk_argument_buffers":false,"wined3d_csmt":false,"metal_validation":true,"hide_wine_versions":true,"exception_trace":true}
 '     > "$OUT/home/config.json"
 launch wined3d 0 diagnostics
 check 'diagnostics settings reach the Wine log header'     grep -q 'csmt=0x0, diagnostics: stock-moltenvk no-argument-buffers no-csmt metal-validation' "$OUT/wine-diagnostics.log"
 check 'hide_wine_versions reaches the Wine environment'     grep -q 'CX_HIDE_BUILTIN_VERSION_RESOURCES=1' "$OUT/wine-diagnostics.log"
+check 'exception_trace adds the full +seh trace' grep -q 'WINEDEBUG=fixme-all,err+all,warn+seh,+seh, ' "$OUT/wine-diagnostics.log"
 rm -f "$OUT/home/config.json"
 check 'check-location rejects a folder inside the prefix' grep -q '"code":"LOCATION_INVALID"' "$OUT/location-bad.jsonl"
 printf '{"library_dir":"%s"}

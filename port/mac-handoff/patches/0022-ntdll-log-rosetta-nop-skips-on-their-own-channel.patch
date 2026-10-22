@@ -1,0 +1,31 @@
+From: Gryphfield
+Subject: [PATCH] ntdll: Log Rosetta NOP skips on their own debug channel.
+
+Patch 0001 traces every multi-byte NOP it steps over on the seh channel. VMProtect
+code in Endfield executes them constantly: one 73 MB +seh log held 212,000 of these
+lines, about a fifth of the file. Use a "rosetta" channel so +seh stays readable;
+WINEDEBUG=+rosetta shows them again.
+---
+diff --git a/dlls/ntdll/unix/signal_x86_64.c b/dlls/ntdll/unix/signal_x86_64.c
+index 8150844..5ea7742 100644
+--- a/dlls/ntdll/unix/signal_x86_64.c
++++ b/dlls/ntdll/unix/signal_x86_64.c
+@@ -87,6 +87,9 @@ extern void _thread_set_tsd_base(uint64_t);
+ 
+ WINE_DEFAULT_DEBUG_CHANNEL(unwind);
+ WINE_DECLARE_DEBUG_CHANNEL(seh);
++#ifdef __APPLE__
++WINE_DECLARE_DEBUG_CHANNEL(rosetta);
++#endif
+ 
+ #ifdef __APPLE__
+ /* process runs under Rosetta 2; cached since sysctl is not signal-safe */
+@@ -2026,7 +2029,7 @@ static BOOL rosetta_skip_long_nop( ucontext_t *sigcontext )
+     if (i > len || i > 15) return FALSE;
+ 
+     RIP_sig(sigcontext) += i;
+-    TRACE_(seh)( "skipped %u-byte NOP\n", i );
++    TRACE_(rosetta)( "skipped %u-byte NOP\n", i );
+     return TRUE;
+ }
+ #endif

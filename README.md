@@ -4,8 +4,8 @@ Experimental macOS app that runs GRYPHLINK and Arknights: Endfield on a bundled,
 **Wine 11.19** (x86_64, under Rosetta 2). This repository holds the Wine patches, the app engine and
 the CI that builds and smoke-tests everything on GitHub's Apple Silicon runners.
 
-Status: GRYPHLINK, login and resource downloads have worked on a tester's Mac. Entering the game world is
-not yet confirmed. Passing CI does not prove gameplay, login or anti-cheat (ACE) acceptance; CI never
+Status: GRYPHLINK, login, resource downloads and the game world work on a tester's Mac (since patch 0021,
+verified 2026-10-21). Passing CI does not prove gameplay, login or anti-cheat (ACE) acceptance; CI never
 downloads or runs the game.
 
 ## Download
@@ -36,7 +36,8 @@ The SwiftUI app lives on the `gryphfield-ui` branch.
 - `0016`: restore the TEB GS base after SIGSYS (fixes the `0xDEADC0DE` exit on direct syscalls).
 - `0017`: optional hiding of Wine's builtin DLL version resources (off by default).
 - `0020`: keep cross-process children of layered windows visible (GRYPHLINK; candidate).
-- `0021`: pad `RegSaveKey` output past a hive header so ACE's read does not fault (candidate).
+- `0021`: pad `RegSaveKey` output past a hive header so ACE's read does not fault (verified on a tester's Mac).
+- `0022`: log Rosetta NOP skips on their own `rosetta` debug channel instead of `seh`.
 - `0101`–`0115`: upstream-11.19 port of FineWine's ACE-CORE driver series.
 
 `MAC_HANDOFF.md` has the details, sources and what each patch was verified against.

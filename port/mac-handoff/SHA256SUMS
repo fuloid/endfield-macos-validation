@@ -1,4 +1,4 @@
-70bbb683388dcfae65e4153415cf194beb721ebd10fb6a413f2951e11ff61ac6  MAC_HANDOFF.md
+51d2b832741d66684b18f059f38ec8e4e29259d85baeb323e8173bc05752335b  MAC_HANDOFF.md
 eaac705b5f8902870d1ad44a1fd54773263c5e711fca3bd5ab8a25303aae5049  AUDIT.md
 274fdb3e42d2d3ad2d13c4219f8d5f3bbf96266688ceda5b944c31608a709cd6  build-mac.sh
 5e26e8951671f1adca635f8db494f8442d8bb0c3973b52b15451590b92207665  noptest.c
@@ -53,3 +53,4 @@ e31aa6796a471609a0741b067bca4016602148a58bb77d520478ff225ec81ee0  PROVENANCE.txt
 c53c219e2d4dfe2ac1d18651a6218d069438d9164cbd41d09f911bb020294366  patches/0020-server-preserve-cross-process-layered-child-clipping.patch
 60b086dfbe6559b5f2612952ea4a03de9409b30e8a21c803d362f482c6c8c987  NOP_DECODER_REVIEW.md
 aa56675d652380472554bfc4a45cfca27742620b25c78f7f839e789eaddf28c1  patches/0021-server-pad-saved-registry-keys-past-a-hive-header.patch
+9669fc8ba660d8b929a8bd6db8543f7fe15c2af6008f053dfdff890813a398a3  patches/0022-ntdll-log-rosetta-nop-skips-on-their-own-channel.patch
