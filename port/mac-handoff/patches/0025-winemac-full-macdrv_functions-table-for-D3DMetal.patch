@@ -1,0 +1,318 @@
+From: Gryphfield
+Subject: [PATCH] winemac.drv: Export CrossOver's full macdrv_functions table for D3DMetal.
+
+Patch 0013 exports the ten entries DXMT uses. Apple's D3DMetal (Game Porting Toolkit
+4.0, libd3dshared.dylib) looks up the same symbol and expects CrossOver's complete
+layout: 24 entries (192 bytes), and from get_win_data CrossOver's older 120-byte
+window data. Both share the first fields DXMT reads, so one table serves both.
+
+The added entries follow CodeWeavers' implementation (LGPL, as ported to Wine 11.12+
+by WineForge): display-device init is a no-op, the window functions call the
+matching NtUser* functions, and OnMainThread runs a block on the main thread. The
+registry functions are not implemented (open/query report "not found", set/create
+are refused), so D3DMetal uses its defaults.
+---
+diff --git a/dlls/winemac.drv/window.c b/dlls/winemac.drv/window.c
+index e8d6e9f..6a9cc79 100644
+--- a/dlls/winemac.drv/window.c
++++ b/dlls/winemac.drv/window.c
+@@ -29,6 +29,7 @@
+ #include "macdrv.h"
+ 
+ #include <IOKit/pwr_mgt/IOPMLib.h>
++#include <dispatch/dispatch.h>
+ 
+ WINE_DEFAULT_DEBUG_CHANNEL(macdrv);
+ 
+@@ -211,31 +212,50 @@ void release_win_data(struct macdrv_win_data *data)
+ /***********************************************************************
+  *              macdrv_functions
+  *
+- * DXMT (https://github.com/3Shain/dxmt) finds this table with dlsym() to put
+- * a Metal view into a window. It expects CrossOver's older window data, which
+- * starts with hwnd, cocoa_window, cocoa_view and client_cocoa_view, so DXMT
+- * gets its own copy in that layout. A window has a client view only once a
+- * GL or Vulkan surface presents in it, so fall back to the content view of
+- * the top-level window.
+- */
+-struct dxmt_win_data
+-{
+-    HWND                    hwnd;
+-    WineWindow             *cocoa_window;
+-    WineContentView        *cocoa_view;
+-    WineContentView        *client_cocoa_view;
+-    struct macdrv_win_data *data;   /* locked until dxmt_release_win_data */
++ * DXMT (https://github.com/3Shain/dxmt) and Apple's D3DMetal (Game Porting
++ * Toolkit) find this table with dlsym() to put a Metal view into a window.
++ * Both expect CrossOver's layout: 24 entries (192 bytes), and from
++ * get_win_data a copy of CrossOver's older window data (120 bytes) that
++ * starts with hwnd, cocoa_window, cocoa_view and client_cocoa_view. A window
++ * has a client view only once a GL or Vulkan surface presents in it, so fall
++ * back to the content view of the top-level window. The window functions
++ * follow CodeWeavers' implementation (LGPL); the registry functions are not
++ * implemented, so D3DMetal uses its defaults.
++ */
++typedef LONG LSTATUS;
++
++struct legacy_win_data
++{
++    HWND                hwnd;
++    WineWindow         *cocoa_window;
++    WineContentView    *cocoa_view;
++    WineContentView    *client_cocoa_view;
++    RECT                window_rect;
++    RECT                whole_rect;
++    RECT                client_rect;
++    int                 pixel_format;
++    COLORREF            color_key;
++    HANDLE              drag_event;
++    unsigned int        on_screen : 1;
++    unsigned int        shaped : 1;
++    unsigned int        layered : 1;
++    unsigned int        ulw_layered : 1;
++    unsigned int        per_pixel_alpha : 1;
++    unsigned int        minimized : 1;
++    void               *padding[2];       /* padding[0]: our win data, locked until release */
+ };
++C_ASSERT(sizeof(struct legacy_win_data) == 120);
+ 
+-static struct macdrv_win_data *dxmt_get_win_data(HWND hwnd)
++static struct macdrv_win_data *legacy_get_win_data(HWND hwnd)
+ {
+-    struct dxmt_win_data *ret;
++    struct legacy_win_data *ret;
+     struct macdrv_win_data *data;
+     WineContentView *view = NULL;
+     HWND toplevel;
+ 
+     if (!(ret = calloc(1, sizeof(*ret)))) return NULL;
+     ret->hwnd = hwnd;
++    ret->color_key = CLR_INVALID;
+     if (!(data = get_win_data(hwnd)) && (toplevel = NtUserGetAncestor(hwnd, GA_ROOT)) && toplevel != hwnd)
+         data = get_win_data(toplevel);
+     if (data)
+@@ -243,23 +263,34 @@ static struct macdrv_win_data *dxmt_get_win_data(HWND hwnd)
+         view = data->client_view;
+         if (!view && data->cocoa_window) view = macdrv_get_window_content_view(data->cocoa_window);
+         ret->cocoa_window = data->cocoa_window;
++        ret->window_rect = data->rects.window;
++        ret->whole_rect = data->rects.visible;
++        ret->client_rect = data->rects.client;
++        ret->pixel_format = data->pixel_format;
++        ret->drag_event = data->drag_event;
++        ret->on_screen = data->on_screen;
++        ret->shaped = data->shaped;
++        ret->layered = data->layered;
++        ret->ulw_layered = data->ulw_layered;
++        ret->per_pixel_alpha = data->per_pixel_alpha;
++        ret->minimized = data->minimized;
+     }
+     ret->cocoa_view = ret->client_cocoa_view = view;
+-    ret->data = data;
++    ret->padding[0] = data;
+     TRACE("hwnd %p window %p view %p\n", hwnd, ret->cocoa_window, view);
+     return (struct macdrv_win_data *)ret;
+ }
+ 
+-static void dxmt_release_win_data(struct macdrv_win_data *data)
++static void legacy_release_win_data(struct macdrv_win_data *data)
+ {
+-    struct dxmt_win_data *dxmt_data = (struct dxmt_win_data *)data;
++    struct legacy_win_data *legacy = (struct legacy_win_data *)data;
+ 
+-    if (!dxmt_data) return;
+-    release_win_data(dxmt_data->data);
+-    free(dxmt_data);
++    if (!legacy) return;
++    release_win_data(legacy->padding[0]);
++    free(legacy);
+ }
+ 
+-static WineMetalView *dxmt_view_create_metal_view(WineContentView *view, MTLDevice_id device)
++static WineMetalView *legacy_view_create_metal_view(WineContentView *view, MTLDevice_id device)
+ {
+     if (!view)
+     {
+@@ -269,32 +300,173 @@ static WineMetalView *dxmt_view_create_metal_view(WineContentView *view, MTLDevi
+     return macdrv_view_create_metal_view(view, device);
+ }
+ 
++static void legacy_init_display_devices(BOOL force)
++{
++    TRACE("%d: no-op\n", force);
++}
++
++static WineWindow *legacy_get_cocoa_window(HWND hwnd, BOOL require_on_screen)
++{
++    return macdrv_get_cocoa_window(hwnd, require_on_screen);
++}
++
++extern void OnMainThread(dispatch_block_t block);
++
++static void legacy_on_main_thread(dispatch_block_t block)
++{
++    OnMainThread(block);
++}
++
++static LSTATUS WINAPI legacy_RegQueryValueExA(HKEY key, LPCSTR name, LPDWORD reserved, LPDWORD type, BYTE *data, LPDWORD count)
++{
++    TRACE("%p %s: not implemented\n", key, debugstr_a(name));
++    return ERROR_FILE_NOT_FOUND;
++}
++
++static LSTATUS WINAPI legacy_RegSetValueExA(HKEY key, LPCSTR name, DWORD reserved, DWORD type, const BYTE *data, DWORD count)
++{
++    TRACE("%p %s: not implemented\n", key, debugstr_a(name));
++    return ERROR_ACCESS_DENIED;
++}
++
++static LSTATUS WINAPI legacy_RegOpenKeyExA(HKEY key, LPCSTR name, DWORD options, DWORD access, HKEY *ret)
++{
++    TRACE("%p %s: not implemented\n", key, debugstr_a(name));
++    if (ret) *ret = 0;
++    return ERROR_FILE_NOT_FOUND;
++}
++
++static LSTATUS WINAPI legacy_RegCreateKeyExA(HKEY key, LPCSTR name, DWORD reserved, LPSTR class, DWORD options,
++                                             DWORD access, LPSECURITY_ATTRIBUTES sa, HKEY *ret, LPDWORD disposition)
++{
++    TRACE("%p %s: not implemented\n", key, debugstr_a(name));
++    if (ret) *ret = 0;
++    return ERROR_ACCESS_DENIED;
++}
++
++static LSTATUS WINAPI legacy_RegCloseKey(HKEY key)
++{
++    return key ? ERROR_SUCCESS : ERROR_INVALID_HANDLE;
++}
++
++static BOOL WINAPI legacy_EnumDisplayMonitors(HDC hdc, LPRECT rect, MONITORENUMPROC proc, LPARAM lp)
++{
++    return NtUserEnumDisplayMonitors(hdc, rect, proc, lp);
++}
++
++static BOOL WINAPI legacy_GetMonitorInfoA(HMONITOR monitor, LPMONITORINFO info)
++{
++    MONITORINFOEXW miW;
++    BOOL ret;
++
++    if (info->cbSize == sizeof(MONITORINFO)) return NtUserGetMonitorInfo(monitor, info);
++    if (info->cbSize != sizeof(MONITORINFOEXA)) return FALSE;
++
++    miW.cbSize = sizeof(miW);
++    if ((ret = NtUserGetMonitorInfo(monitor, (MONITORINFO *)&miW)))
++    {
++        MONITORINFOEXA *miA = (MONITORINFOEXA *)info;
++        DWORD size;
++
++        miA->rcMonitor = miW.rcMonitor;
++        miA->rcWork = miW.rcWork;
++        miA->dwFlags = miW.dwFlags;
++        memset(miA->szDevice, 0, sizeof(miA->szDevice));
++        RtlUnicodeToUTF8N(miA->szDevice, sizeof(miA->szDevice) - 1, &size, miW.szDevice, wcslen(miW.szDevice) * sizeof(WCHAR));
++    }
++    return ret;
++}
++
++static BOOL WINAPI legacy_AdjustWindowRectEx(LPRECT rect, DWORD style, BOOL menu, DWORD ex_style)
++{
++    return NtUserAdjustWindowRect(rect, style, menu, ex_style, NtUserGetSystemDpiForProcess(NULL));
++}
++
++static LONG_PTR WINAPI legacy_GetWindowLongPtrW(HWND hwnd, int index)
++{
++    return NtUserGetWindowLongPtrW(hwnd, index);
++}
++
++static BOOL WINAPI legacy_GetWindowRect(HWND hwnd, LPRECT rect)
++{
++    return NtUserGetWindowRect(hwnd, rect, NtUserGetWinMonitorDpi(hwnd, MDT_DEFAULT));
++}
++
++static BOOL WINAPI legacy_MoveWindow(HWND hwnd, int x, int y, int cx, int cy, BOOL repaint)
++{
++    return NtUserMoveWindow(hwnd, x, y, cx, cy, repaint);
++}
++
++static BOOL WINAPI legacy_SetWindowPos(HWND hwnd, HWND after, int x, int y, int cx, int cy, UINT flags)
++{
++    return NtUserSetWindowPos(hwnd, after, x, y, cx, cy, flags);
++}
++
++static INT WINAPI legacy_GetSystemMetrics(INT index)
++{
++    return NtUserGetSystemMetrics(index);
++}
++
++static LONG_PTR WINAPI legacy_SetWindowLongPtrW(HWND hwnd, INT offset, LONG_PTR value)
++{
++    return NtUserSetWindowLongPtr(hwnd, offset, value, FALSE);
++}
++
+ struct macdrv_functions_t
+ {
+-    void *macdrv_init_display_devices;
++    void (*macdrv_init_display_devices)(BOOL);
+     struct macdrv_win_data *(*get_win_data)(HWND hwnd);
+     void (*release_win_data)(struct macdrv_win_data *data);
+-    void *macdrv_get_cocoa_window;
++    WineWindow *(*macdrv_get_cocoa_window)(HWND hwnd, BOOL require_on_screen);
+     MTLDevice_id (*macdrv_create_metal_device)(void);
+     void (*macdrv_release_metal_device)(MTLDevice_id device);
+     WineMetalView *(*macdrv_view_create_metal_view)(WineContentView *view, MTLDevice_id device);
+     CAMetalLayer *(*macdrv_view_get_metal_layer)(WineMetalView *view);
+     void (*macdrv_view_release_metal_view)(WineMetalView *view);
+-    void *on_main_thread;
++    void (*on_main_thread)(dispatch_block_t block);
++    LSTATUS (WINAPI *RegQueryValueExA)(HKEY, LPCSTR, LPDWORD, LPDWORD, BYTE *, LPDWORD);
++    LSTATUS (WINAPI *RegSetValueExA)(HKEY, LPCSTR, DWORD, DWORD, const BYTE *, DWORD);
++    LSTATUS (WINAPI *RegOpenKeyExA)(HKEY, LPCSTR, DWORD, DWORD, HKEY *);
++    LSTATUS (WINAPI *RegCreateKeyExA)(HKEY, LPCSTR, DWORD, LPSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, HKEY *, LPDWORD);
++    LSTATUS (WINAPI *RegCloseKey)(HKEY);
++    BOOL (WINAPI *EnumDisplayMonitors)(HDC, LPRECT, MONITORENUMPROC, LPARAM);
++    BOOL (WINAPI *GetMonitorInfoA)(HMONITOR, LPMONITORINFO);
++    BOOL (WINAPI *AdjustWindowRectEx)(LPRECT, DWORD, BOOL, DWORD);
++    LONG_PTR (WINAPI *GetWindowLongPtrW)(HWND, int);
++    BOOL (WINAPI *GetWindowRect)(HWND, LPRECT);
++    BOOL (WINAPI *MoveWindow)(HWND, int, int, int, int, BOOL);
++    BOOL (WINAPI *SetWindowPos)(HWND, HWND, int, int, int, int, UINT);
++    INT (WINAPI *GetSystemMetrics)(INT);
++    LONG_PTR (WINAPI *SetWindowLongPtrW)(HWND, INT, LONG_PTR);
+ };
++C_ASSERT(sizeof(struct macdrv_functions_t) == 192);
+ 
+ DECLSPEC_EXPORT const struct macdrv_functions_t macdrv_functions =
+ {
+-    NULL,
+-    dxmt_get_win_data,
+-    dxmt_release_win_data,
+-    NULL,
++    legacy_init_display_devices,
++    legacy_get_win_data,
++    legacy_release_win_data,
++    legacy_get_cocoa_window,
+     macdrv_create_metal_device,
+     macdrv_release_metal_device,
+-    dxmt_view_create_metal_view,
++    legacy_view_create_metal_view,
+     macdrv_view_get_metal_layer,
+     macdrv_view_release_metal_view,
+-    NULL,
++    legacy_on_main_thread,
++    legacy_RegQueryValueExA,
++    legacy_RegSetValueExA,
++    legacy_RegOpenKeyExA,
++    legacy_RegCreateKeyExA,
++    legacy_RegCloseKey,
++    legacy_EnumDisplayMonitors,
++    legacy_GetMonitorInfoA,
++    legacy_AdjustWindowRectEx,
++    legacy_GetWindowLongPtrW,
++    legacy_GetWindowRect,
++    legacy_MoveWindow,
++    legacy_SetWindowPos,
++    legacy_GetSystemMetrics,
++    legacy_SetWindowLongPtrW,
+ };
+ 
+ 

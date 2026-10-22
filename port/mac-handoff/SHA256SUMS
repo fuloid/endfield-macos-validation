@@ -1,4 +1,4 @@
-85ac96f62c49c1a60fe20ae8fe9f8fe8a4988ea7cdc11e61e5b3996df6c5d01a  MAC_HANDOFF.md
+130cff5a7e8646b5defb1aacde569c9d6b61c997838e668353883662be2a7093  MAC_HANDOFF.md
 eaac705b5f8902870d1ad44a1fd54773263c5e711fca3bd5ab8a25303aae5049  AUDIT.md
 274fdb3e42d2d3ad2d13c4219f8d5f3bbf96266688ceda5b944c31608a709cd6  build-mac.sh
 5e26e8951671f1adca635f8db494f8442d8bb0c3973b52b15451590b92207665  noptest.c
@@ -56,3 +56,4 @@ aa56675d652380472554bfc4a45cfca27742620b25c78f7f839e789eaddf28c1  patches/0021-s
 9669fc8ba660d8b929a8bd6db8543f7fe15c2af6008f053dfdff890813a398a3  patches/0022-ntdll-log-rosetta-nop-skips-on-their-own-channel.patch
 ad9205a4d49dc45b02620490e020768beba2ff01a91073f8dd505eda037289ab  patches/0023-dwmapi-winemac-composite-blur-behind-windows-with-their-alpha.patch
 7a1c7f0fcb2a8aceeb73b4331a598c5b43111756aeee246a96c2526a05e5ceac  patches/0024-winecoreaudio-render-streams-follow-the-system-output-device.patch
+1546970d6fed9e46270fa91b4c87e5ff8692858fdfcc189983e42c7a5c77782d  patches/0025-winemac-full-macdrv_functions-table-for-D3DMetal.patch
