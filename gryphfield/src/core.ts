@@ -5,13 +5,17 @@ import type { DiagnosticResult, EngineEvent, SettingsResult } from "./shared.ts"
 
 export type Phase = "boot" | "checking" | "setup" | "ready" | "running" | "failure";
 export type Action = "none" | "status" | "setup" | "gryphlink" | "direct";
-export type Modal = "profile" | "none" | "settings" | "failure" | "uninstall1" | "uninstall2" | "reset1" | "reset2";
+export type Modal = "profile" | "none" | "settings" | "failure" | "uninstall1" | "uninstall2" | "reset1" | "reset2" | "d3dmetal";
 export type Graphics = "dxmt" | "d3dmetal" | "wined3d" | "vulkan";
 // "second" is stored as "1s" in config.json (an enum member cannot start with a digit)
 export type HudLog = "off" | "second" | "frame";
 export type Launch = "none" | "gryphlink" | "direct";
 export type SetupStep = "none" | "rosetta" | "prefix" | "gryphlink";
 export type StepState = "pending" | "active" | "done" | "failed";
+
+// D3DMetal comes from Apple's Game Porting Toolkit 4, whose components only load on this macOS or later.
+export const D3DMETAL_MIN_MACOS = { major: 26, minor: 4 } as const;
+export const GPTK_URL = "https://developer.apple.com/games/game-porting-toolkit/";
 
 export interface Model {
   readonly profileBusy: boolean;
@@ -40,6 +44,8 @@ export interface Model {
   readonly gameRunning: boolean;
   readonly unityStable: boolean;
   readonly graphics: Graphics;
+  // Host product version from `sw_vers -productVersion`, e.g. "15.6"; empty until known or if detection fails.
+  readonly macosVersion: Uint8Array;
   readonly engineVersion: Uint8Array;
   readonly prefixPath: Uint8Array;
   readonly launcherPath: Uint8Array;
@@ -132,6 +138,11 @@ export type Msg =
   | { readonly kind: "wined3d" }
   | { readonly kind: "vulkan" }
   | { readonly kind: "d3dmetal" }
+  | { readonly kind: "d3dmetal_close" }
+  | { readonly kind: "d3dmetal_learn_more" }
+  | { readonly kind: "host_line"; readonly bytes: Uint8Array }
+  | { readonly kind: "host_exited"; readonly code: number }
+  | { readonly kind: "host_failed"; readonly reason: Uint8Array }
   | { readonly kind: "toggle_metal_hud" }
   | { readonly kind: "hud_log_off" }
   | { readonly kind: "hud_log_second" }
@@ -176,7 +187,7 @@ export type Msg =
   | { readonly kind: "location_settle"; readonly at: number }
   | { readonly kind: "location_saved"; readonly result: SettingsResult };
 
-export const viewUnbound = ["profile_spawn_failed", "profile_line", "profile_parsed", "profile_failed", "profile_exited", "profile_settle", "boot", "enable_mock", "line", "exited", "settle", "spawn_failed", "parsed", "parse_failed", "control_line", "control_exited", "control_failed", "control_parsed", "diagnosed", "diagnose_failed", "settings_loaded", "settings_saved", "settings_failed", "location_line", "location_parsed", "location_exited", "location_failed", "location_settle", "location_saved"] as const;
+export const viewUnbound = ["profile_spawn_failed", "profile_line", "profile_parsed", "profile_failed", "profile_exited", "profile_settle", "boot", "enable_mock", "host_line", "host_exited", "host_failed", "line", "exited", "settle", "spawn_failed", "parsed", "parse_failed", "control_line", "control_exited", "control_failed", "control_parsed", "diagnosed", "diagnose_failed", "settings_loaded", "settings_saved", "settings_failed", "location_line", "location_parsed", "location_exited", "location_failed", "location_settle", "location_saved"] as const;
 
 export function initialModel(): Model {
   return {
@@ -185,7 +196,7 @@ export function initialModel(): Model {
     runner: asciiBytes("/bin/bash"), script: asciiBytes("/Applications/Gryphfield.app/Contents/Resources/engine/bin/gryphfield-engine"),
     rosetta: false, prefixReady: false, launcherReady: false, gameReady: false,
     wineRunning: false, launcherRunning: false, gameRunning: false, unityStable: false,
-    graphics: "dxmt", engineVersion: asciiBytes(""), prefixPath: asciiBytes(""),
+    graphics: "dxmt", macosVersion: asciiBytes(""), engineVersion: asciiBytes(""), prefixPath: asciiBytes(""),
     launcherPath: asciiBytes(""), gamePath: asciiBytes(""), winePath: asciiBytes("/Applications/Gryphfield.app/Contents/Resources/engine/wine"), logPath: asciiBytes(""),
     activity: asciiBytes("Checking bundled engine..."), errorCode: asciiBytes(""),
     errorMessage: asciiBytes(""), exitCode: -1, gameExitCode: -1, launchFailed: false,
@@ -200,6 +211,31 @@ export function initialModel(): Model {
     locationPath: asciiBytes(""), locationCustom: false, locationAvailable: true, locationBusy: false,
     locationPending: asciiBytes(""), locationNote: asciiBytes(""),
   };
+}
+
+// "15.6" -> 15 / 6, "26" -> 26 / 0. Anything else is unknown (-1), which counts as supported.
+function parseMacosVersion(bytes: Uint8Array): { major: number; minor: number } {
+  let major = 0, minor = 0, digits = 0, part = 0;
+  for (let i = 0; i < bytes.length; i += 1) {
+    const b = bytes[i];
+    if (b >= 48 && b <= 57) {
+      if (digits >= 6) return { major: -1, minor: -1 };
+      if (part === 0) major = major * 10 + (b - 48);
+      else minor = minor * 10 + (b - 48);
+      digits += 1;
+    } else if (b === 46 && digits > 0 && part === 0) { part = 1; digits = 0; }
+    else break;
+  }
+  return part === 0 && digits === 0 ? { major: -1, minor: -1 } : { major, minor };
+}
+export function d3dmetalSupported(model: Model): boolean {
+  const v = parseMacosVersion(model.macosVersion);
+  if (v.major < 0) return true;
+  return v.major > D3DMETAL_MIN_MACOS.major || (v.major === D3DMETAL_MIN_MACOS.major && v.minor >= D3DMETAL_MIN_MACOS.minor);
+}
+// A saved d3dmetal on an unsupported macOS runs and shows as DXMT; the file changes only on save.
+function usableGraphics(model: Model, graphics: Graphics): Graphics {
+  return graphics === "d3dmetal" && !d3dmetalSupported(model) ? "dxmt" : graphics;
 }
 
 export function hasProfileNote(model: Model): boolean { return model.profileNote.length > 0; }
@@ -368,6 +404,8 @@ export function update(model: Model, msg: Msg): Model | [Model, Cmd<Msg>] {
     case "enable_mock":
       return { ...model, mock: true, runner: asciiBytes("node"), script: asciiBytes("mock-engine.mjs"), phase: "boot", action: "none" };
     case "boot":
+      if (model.action !== "none") return model;
+      return [{ ...model, phase: "checking", action: "status", modal: "none", doneOk: false, doneReceived: false, processExited: false }, Cmd.batch([Cmd.spawn([model.runner, model.script, asciiBytes("status")], { key: "main", line: "line", exit: "exited", err: "spawn_failed" }), Cmd.spawn([asciiBytes("/usr/bin/sw_vers"), asciiBytes("-productVersion")], { key: "host", line: "host_line", exit: "host_exited", err: "host_failed" })])];
     case "refresh":
       if (model.action !== "none") return model;
       return [{ ...model, phase: "checking", action: "status", modal: "none", doneOk: false, doneReceived: false, processExited: false }, Cmd.spawn([model.runner, model.script, asciiBytes("status")], { key: "main", line: "line", exit: "exited", err: "spawn_failed" })];
@@ -461,7 +499,19 @@ export function update(model: Model, msg: Msg): Model | [Model, Cmd<Msg>] {
     case "dxmt": return { ...model, graphics: "dxmt", settingsSaved: false };
     case "wined3d": return { ...model, graphics: "wined3d", settingsSaved: false };
     case "vulkan": return { ...model, graphics: "vulkan", settingsSaved: false };
-    case "d3dmetal": return { ...model, graphics: "d3dmetal", settingsSaved: false };
+    case "d3dmetal":
+      if (!d3dmetalSupported(model)) return model.modal === "settings" ? { ...model, modal: "d3dmetal" } : model;
+      return { ...model, graphics: "d3dmetal", settingsSaved: false };
+    case "d3dmetal_close": return model.modal === "d3dmetal" ? { ...model, modal: "settings" } : model;
+    case "d3dmetal_learn_more": return [model, Cmd.openExternalUrl(asciiBytes(GPTK_URL))];
+    // sw_vers failing (or printing nothing usable) leaves the version unknown, which does not block D3DMetal.
+    case "host_line": {
+      const next = { ...model, macosVersion: msg.bytes };
+      return { ...next, graphics: usableGraphics(next, next.graphics) };
+    }
+    case "host_exited":
+    case "host_failed":
+      return model;
     case "toggle_metal_hud": return { ...model, metalHud: !model.metalHud, settingsSaved: false };
     case "hud_log_off": return { ...model, hudLog: "off", settingsSaved: false };
     case "hud_log_second": return { ...model, hudLog: "second", settingsSaved: false };
@@ -487,7 +537,7 @@ export function update(model: Model, msg: Msg): Model | [Model, Cmd<Msg>] {
       const size = text.length;
       if (!(size >= 0) || size > 2048) return model;
       const end = Math.trunc(size);
-      return { ...model, graphics: sameAscii(value.graphics, asciiBytes("vulkan")) ? "vulkan" : sameAscii(value.graphics, asciiBytes("wined3d")) ? "wined3d" : sameAscii(value.graphics, asciiBytes("d3dmetal")) ? "d3dmetal" : "dxmt", argsEdit: { text, selection: { anchor: end, focus: end }, composition: null }, debugLogging: value.debugLogging, exceptionTrace: value.exceptionTrace, logCapEdit: caretAtEnd(value.logMaxMb), rosettaAvx: value.rosettaAvx, stockMoltenvk: value.stockMoltenvk, mvkArgumentBuffers: value.mvkArgumentBuffers, mvkDebug: value.mvkDebug, mvkBackgroundCompilation: value.mvkBackgroundCompilation, wined3dCsmt: value.wined3dCsmt, metalValidation: value.metalValidation, metalHud: value.metalHud, hudLog: sameAscii(value.metalHudLog, asciiBytes("1s")) ? "second" : sameAscii(value.metalHudLog, asciiBytes("frame")) ? "frame" : "off", hideWineVersions: value.hideWineVersions, discordPresence: value.discordPresence, settingsSaved: true };
+      return { ...model, graphics: usableGraphics(model, sameAscii(value.graphics, asciiBytes("vulkan")) ? "vulkan" : sameAscii(value.graphics, asciiBytes("wined3d")) ? "wined3d" : sameAscii(value.graphics, asciiBytes("d3dmetal")) ? "d3dmetal" : "dxmt"), argsEdit: { text, selection: { anchor: end, focus: end }, composition: null }, debugLogging: value.debugLogging, exceptionTrace: value.exceptionTrace, logCapEdit: caretAtEnd(value.logMaxMb), rosettaAvx: value.rosettaAvx, stockMoltenvk: value.stockMoltenvk, mvkArgumentBuffers: value.mvkArgumentBuffers, mvkDebug: value.mvkDebug, mvkBackgroundCompilation: value.mvkBackgroundCompilation, wined3dCsmt: value.wined3dCsmt, metalValidation: value.metalValidation, metalHud: value.metalHud, hudLog: sameAscii(value.metalHudLog, asciiBytes("1s")) ? "second" : sameAscii(value.metalHudLog, asciiBytes("frame")) ? "frame" : "off", hideWineVersions: value.hideWineVersions, discordPresence: value.discordPresence, settingsSaved: true };
     }
     // The service clamps the log cap to 50-5120 MB; show the value it stored.
     case "settings_saved": return { ...model, settingsSaved: true, settingsBusy: false, logCapEdit: caretAtEnd(msg.result.logMaxMb) };

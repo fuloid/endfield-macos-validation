@@ -322,7 +322,7 @@
                 <segmented-control selected="{graphics == 'wined3d'}" on-press="wined3d">WineD3D</segmented-control>
                 <segmented-control selected="{graphics == 'vulkan'}" on-press="vulkan">Vulkan</segmented-control>
               </row>
-              <text foreground="text_muted" wrap="true">DXMT and D3DMetal (Apple's, experimental) run the game's DirectX 11 renderer. Vulkan uses the game's Vulkan renderer through patched MoltenVK.</text>
+              <text foreground="text_muted" wrap="true">DXMT and D3DMetal (Apple's, experimental, macOS 26.4 or later) run the game's DirectX 11 renderer. Vulkan uses the game's Vulkan renderer through patched MoltenVK.</text>
             </column>
             <column gap="8">
               <text>Launch options</text>
@@ -411,6 +411,25 @@
         <row gap="8" main="end">
           <button on-press="modal_close" disabled="{settingsBusy}">Close</button>
           <button variant="primary" icon="save" on-press="save_settings" disabled="{settingsSaved or settingsBusy}">Save settings</button>
+        </row>
+      </column>
+    </dialog>
+  </if>
+
+  <if test="{modal == 'd3dmetal'}">
+    <dialog width="520" label="D3DMetal isn't available on this Mac" on-dismiss="d3dmetal_close">
+      <column padding="20" gap="12">
+        <row gap="10" cross="center">
+          <icon name="info" foreground="info" width="22" height="22" />
+          <text size="lg" grow="1">D3DMetal isn't available on this Mac</text>
+        </row>
+        <text wrap="true">D3DMetal mode needs macOS 26.4 or later. This Mac is running macOS {macosVersion}.</text>
+        <text wrap="true">Gryphfield bundles D3DMetal from Apple's Game Porting Toolkit 4. Some of its components only load on macOS 26.4 or later, and Apple released this version for macOS 27, so it can't run reliably here.</text>
+        <text wrap="true">Your graphics mode stays unchanged. DXMT is the recommended mode and works on this Mac.</text>
+        <row gap="8" cross="center">
+          <button size="sm" variant="ghost" icon="external-link" on-press="d3dmetal_learn_more">About Game Porting Toolkit</button>
+          <spacer grow="1" />
+          <button variant="primary" on-press="d3dmetal_close">OK</button>
         </row>
       </column>
     </dialog>

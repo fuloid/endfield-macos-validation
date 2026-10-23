@@ -14,7 +14,7 @@
     },
     "platforms": ["macos"],
     "permissions": ["view", "command"],
-    "capabilities": ["native_views", "gpu_surfaces", "reveal_path"],
+    "capabilities": ["native_views", "gpu_surfaces", "reveal_path", "open_url"],
     "shell": {
         "windows": [
             {
@@ -33,7 +33,7 @@
     "security": {
         "navigation": {
             "allowed_origins": ["zero://app", "zero://inline"],
-            "external_links": { "action": "deny" }
+            "external_links": { "action": "open_system_browser", "allowed_urls": ["https://developer.apple.com/games/game-porting-toolkit/"] }
         }
     },
     "web_engine": "system",

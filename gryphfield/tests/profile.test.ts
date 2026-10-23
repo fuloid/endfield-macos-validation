@@ -196,7 +196,7 @@ test("capture has its own process key and background settings loads preserve edi
   s = await capture(app, s);
   s = await app.click(button(s, "Start"));
   assert.notEqual(spawn(s).key, main.key);
-  assert.equal(s.effects.spawns.length, 2);
+  assert.equal(s.effects.spawns.filter(p => text(p.argv[0]) !== "/usr/bin/sw_vers").length, 2);
   const settings = serviceConcat([
     serviceBytes(bytes("dxmt")), serviceBytes(bytes("")), serviceBoolBytes(false), serviceBoolBytes(false),
     serviceBytes(bytes("1024")), ...[true, false, true, false, true, true, false, false, false, false].map(serviceBoolBytes),
