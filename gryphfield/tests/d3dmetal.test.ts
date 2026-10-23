@@ -99,8 +99,8 @@ test("a saved d3dmetal setting is shown and used as dxmt below 26.4, in either a
     assert.equal(s.model.graphics, "dxmt");
     assert.equal(s.model.settingsSaved, true, "nothing is rewritten unless the user saves");
     s = await openSettings(app, s);
-    assert.equal(s.widgets.find(w => w.name === "D3DMetal")!.selected, false);
-    assert.equal(s.widgets.find(w => w.name === "DXMT")!.selected, true);
+    assert.equal(findWidget(s, { role: "tab", name: "D3DMetal" }).selected, false);
+    assert.equal(findWidget(s, { role: "tab", name: "DXMT" }).selected, true);
     await app.verifyReplay();
   }
 });
