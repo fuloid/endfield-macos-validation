@@ -132,7 +132,7 @@ jobs:
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ${{ env.WORK_DIR }}/wine-install
-          key: wine-install-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('port/mac-handoff/patches/**', 'port/mac-handoff/build-mac.sh', 'scripts/ci-macos-deps.sh') }}
+          key: wine-install-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('port/mac-handoff/patches/**', 'port/mac-handoff/patches-d3dmetal/**', 'port/mac-handoff/build-mac.sh', 'scripts/ci-macos-deps.sh') }}
       - name: Report Wine build cache
         run: |
           if [ "${{ steps.winecache.outputs.cache-hit }}" = true ]; then
@@ -187,7 +187,7 @@ jobs:
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ${{ env.WORK_DIR }}/wine-install
-          key: wine-install-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('port/mac-handoff/patches/**', 'port/mac-handoff/build-mac.sh', 'scripts/ci-macos-deps.sh') }}
+          key: wine-install-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('port/mac-handoff/patches/**', 'port/mac-handoff/patches-d3dmetal/**', 'port/mac-handoff/build-mac.sh', 'scripts/ci-macos-deps.sh') }}
       # Intel Homebrew is hidden while the probe runs, so it proves Wine needs only lib/external.
       - name: Run Wine and instruction probe under Rosetta (Intel Homebrew hidden)
         run: |

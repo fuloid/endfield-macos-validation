@@ -35,6 +35,7 @@ chmod 755 "$OUT/bin/gryphfield-hud"
 mkdir -p "$OUT/wine"
 (cd "$WINE_INSTALL" && tar -cf - bin lib share) | (cd "$OUT/wine" && tar -xf -)
 rm -rf "$OUT/wine/share/man"
+rm -rf "$OUT/wine/lib/wine-d3dmetal-ntdll"
 find "$OUT/wine/lib/wine" -name '*.a' -delete
 cp "$WINE_INSTALL/BUILD-INFO.txt" "$OUT/wine/" 2>/dev/null || true
 cp -R "$WINE_INSTALL/patches" "$OUT/wine/patches" 2>/dev/null || true
@@ -111,6 +112,17 @@ build_d3dmetal_overlay() {
             fi
         done
     done
+    if [ -d "$WINE_INSTALL/lib/wine-d3dmetal-ntdll" ]; then
+        local variant="$WINE_INSTALL/lib/wine-d3dmetal-ntdll"
+        (cd "$variant" && shasum -a 256 -c SHA256SUMS)
+        for file in x86_64-unix/ntdll.so x86_64-windows/ntdll.dll; do
+            rm -f "$dst/lib/wine/$file"
+            cp -p "$variant/$file" "$dst/lib/wine/$file"
+            cmp "$variant/$file" "$dst/lib/wine/$file"
+        done
+        cp "$variant/EXPERIMENTAL.txt" "$dst/EXPERIMENTAL-D3DMETAL-NTDLL.txt"
+        cp -R "$variant/patches" "$dst/ntdll-patches"
+    fi
     for name in d3d11 dxgi; do
         [ -f "$dst/lib/wine/x86_64-windows/$name.dll" ] && [ ! -L "$dst/lib/wine/x86_64-windows/$name.dll" ] \
             || die "D3DMetal overlay is missing $name.dll"

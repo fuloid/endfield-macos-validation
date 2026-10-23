@@ -120,9 +120,49 @@ build() {
     local jobs="${JOBS:-6}"
     make -C "$BUILD" -j"$jobs" 2>&1 | tee "$WORK_DIR/build.log"
     make -C "$BUILD" install 2>&1 | tee "$WORK_DIR/install.log"
+    build_d3dmetal_ntdll
     file "$PREFIX"/bin/wine* | tee "$WORK_DIR/binaries.txt"
     echo "Installed into $PREFIX; continue with MAC_HANDOFF.md."
 }
+build_d3dmetal_ntdll() (
+    require_mac
+    source_check
+    local variant="$PREFIX/lib/wine-d3dmetal-ntdll" saved="$WORK_DIR/ntdll-normal"
+    local applied=0 p patches=()
+    [ ! -e "$saved" ] || die "$saved already exists; inspect the previous variant build."
+    cp -pR "$BUILD/dlls/ntdll" "$saved"
+    restore_ntdll() {
+        local status=$?
+        trap - EXIT
+        if [ "$applied" = 1 ]; then
+            git -C "$SOURCE" apply --reverse "${patches[@]}" || status=1
+        fi
+        cp -pR "$saved/." "$BUILD/dlls/ntdll/" || status=1
+        [ "$status" != 0 ] || rm -rf "$saved"
+        exit "$status"
+    }
+    trap restore_ntdll EXIT
+    for p in "$PORT_DIR"/patches-d3dmetal/*.patch; do patches+=("$p"); done
+    git -C "$SOURCE" apply --check "${patches[@]}"
+    git -C "$SOURCE" apply "${patches[@]}"
+    applied=1
+    # PE sources do not receive __APPLE__ from the MinGW compiler.
+    printf 'x86_64_CFLAGS += -DWINE_D3DMETAL_TSD\n' > "$WORK_DIR/d3dmetal-ntdll.mk"
+    make -C "$BUILD" -f Makefile -f "$WORK_DIR/d3dmetal-ntdll.mk" -j"${JOBS:-6}" \
+        dlls/ntdll/ntdll.so dlls/ntdll/x86_64-windows/ntdll.dll \
+        2>&1 | tee "$WORK_DIR/build-d3dmetal-ntdll.log"
+    mkdir -p "$variant/x86_64-unix" "$variant/x86_64-windows" "$variant/patches"
+    install -m 755 "$BUILD/dlls/ntdll/ntdll.so" "$variant/x86_64-unix/ntdll.so"
+    install -m 644 "$BUILD/dlls/ntdll/x86_64-windows/ntdll.dll" "$variant/x86_64-windows/ntdll.dll"
+    cp "${patches[@]}" "$variant/patches/"
+    printf 'Experimental D3DMetal native-TSD ntdll pair. CI/review only; do not release.\n' > "$variant/EXPERIMENTAL.txt"
+    (cd "$variant" && shasum -a 256 x86_64-unix/ntdll.so x86_64-windows/ntdll.dll) > "$variant/SHA256SUMS"
+    cmp -s "$PREFIX/lib/wine/x86_64-unix/ntdll.so" "$variant/x86_64-unix/ntdll.so" \
+        && die 'Variant Unix ntdll unexpectedly matches the normal build.'
+    cmp -s "$PREFIX/lib/wine/x86_64-windows/ntdll.dll" "$variant/x86_64-windows/ntdll.dll" \
+        && die 'Variant PE ntdll unexpectedly matches the normal build.'
+    echo "Experimental ntdll pair installed into $variant"
+)
 bundle() {
     # Copy the runtime libraries Wine loads (and every non-system library they depend on) into
     # $PREFIX/lib/external, point their cross-references at the same folder, and re-sign them.

@@ -1,0 +1,376 @@
+From: Gryphfield
+Subject: [PATCH] ntdll: Keep macOS x86_64 GSBASE on the native TSD for D3DMetal.
+
+EXPERIMENTAL, CI/review only. Do not ship in a release.
+
+Selective semantic port of the GS model in CrossOver 26.3 (Wine 11.0),
+Copyright CodeWeavers and the Wine authors, LGPL-2.1-or-later. Source:
+https://media.codeweavers.com/pub/crossover/source/crossover-sources-26.3.0.tar.gz
+
+Port the thread-start Self/TLS/PEB mirrors, Instrumentation[0] TLS updates,
+indirect dispatcher and PE PEB loads, and thread-local localtime replacement.
+Retain Wine 11.19's r13, thread_data, syscall frame at TEB+0x378, and MXCSR
+handling. Remove Apple GS swaps and neutralise normal patch 0016 only here.
+The localtime entry hook follows CrossOver, with checked protection changes
+and installation before the Wine thread starts. Invalid-GS recovery restores
+the native TSD and retries only when the full signal context proves a bad
+base; contexts without GSBASE cannot safely distinguish legitimate faults.
+
+Unix changes are Apple x86_64-only. Build PE ntdll with WINE_D3DMETAL_TSD;
+do not define it for a normal build. Linux/FreeBSD paths remain unchanged.
+Only Self, TLS and PEB are mirrored: arbitrary inline TEB offsets remain an
+inherent limitation of this model. No ACE, anti-cheat or SDK code is changed.
+---
+diff --git a/dlls/ntdll/unix/signal_x86_64.c b/dlls/ntdll/unix/signal_x86_64.c
+--- a/dlls/ntdll/unix/signal_x86_64.c
++++ b/dlls/ntdll/unix/signal_x86_64.c
+@@ -71,7 +71,6 @@
+  * %rcx and %r11).
+  * See https://github.com/apple-oss-distributions/xnu/blob/main/libsyscall/custom/custom.s
+  * or libsystem_kernel.dylib.
+- * Note that the dispatchers do the syscall directly to avoid using the stack.
+  */
+ extern void _thread_set_tsd_base(uint64_t);
+ #endif
+@@ -831,10 +830,6 @@
+         amd64_data->syscall_dispatch = 1;  /* SYSCALL_DISPATCH_FILTER_BLOCK */
+         if (fs32_sel) __asm__ volatile( "movw %0,%%fs" :: "r" (fs32_sel) );
+     }
+-#elif defined __APPLE__
+-    if (!is_inside_signal_stack( data, (void *)RSP_sig(sigcontext )) &&
+-        !is_inside_syscall( data, RSP_sig(sigcontext )))
+-        _thread_set_tsd_base( (uint64_t)data->teb );
+ #endif
+     if (is_16bit( sigcontext )) return;
+ #ifdef DS_sig
+@@ -1708,13 +1703,6 @@
+                    "jz 1f\n\t"
+                    "movw %ax,%fs\n"
+                    "1:\n\t"
+-#elif defined __APPLE__
+-                   "movq %rcx,%r10\n\t"
+-                   "movq %r13,%rdi\n\t"
+-                   "xorl %esi,%esi\n\t"
+-                   "movl $0x3000003,%eax\n\t"  /* _thread_set_tsd_base */
+-                   "syscall\n\t"
+-                   "movq %r10,%rcx\n\t"
+ #endif
+                    "movq 0x330(%r13),%r10\n\t" /* amd64_thread_data()->instrumentation_callback */
+                    "movq (%r10),%r10\n\t"
+@@ -2324,10 +2312,19 @@
+ #elif defined(__NetBSD__)
+     sysarch( X86_64_GET_GSBASE, &cur_gsbase );
+ #elif defined(__APPLE__)
+-    /* init_handler() has already reset GSBASE, we can't determine what it was before the signal */
+-#endif
+-
++    /* Only the full context records the interrupted GSBASE. init_handler() has
++     * restored the native TSD; do not blindly retry faults with a healthy GS. */
++    if (ucontext->uc_mcsize != sizeof(_STRUCT_MCONTEXT64_FULL) &&
++        ucontext->uc_mcsize != sizeof(_STRUCT_MCONTEXT_AVX64_FULL) &&
++        ucontext->uc_mcsize != SIZEOF_STRUCT_MCONTEXT_AVX512_64_FULL)
++        return FALSE;
++    cur_gsbase = ((_STRUCT_MCONTEXT64_FULL *)ucontext->uc_mcontext)->__ss.__gsbase;
++    if (cur_gsbase == (ULONG_PTR)amd64_thread_data( data )->pthread_teb) return FALSE;
++#endif
++
++#ifndef __APPLE__
+     if (cur_gsbase == (ULONG_PTR)data->teb) return FALSE;
++#endif
+ 
+     if (rip != __wine_syscall_dispatcher_gs_load_ptr && rip != __wine_unix_call_dispatcher_gs_load_ptr)
+     {
+@@ -2385,7 +2382,7 @@
+ #elif defined(__NetBSD__)
+     sysarch( X86_64_SET_GSBASE, &data->teb );
+ #elif defined(__APPLE__)
+-    /* leave_handler() will set GSBASE to the TEB */
++    /* init_handler() has restored GSBASE to pthread_teb. */
+ #endif
+     return TRUE;
+ }
+@@ -2808,9 +2805,6 @@
+             RIP_sig(sigcontext) = (ULONG64)rosetta_restore_mxcsr_thunk;
+         }
+     }
+-    /* init_handler() switched GSBASE to the pthread TEB, and nothing switches it back
+-     * before the dispatcher, which reads the TEB from %gs:0x30. */
+-    _thread_set_tsd_base( (uint64_t)data->teb );
+ #endif
+ }
+ #endif
+@@ -3088,6 +3082,11 @@
+     sysarch( X86_64_SET_GSBASE, &teb );
+ #elif defined (__APPLE__)
+     thread_data->pthread_teb = mac_thread_gsbase();
++    assert( thread_data->pthread_teb );
++    __asm__ volatile ("movq %0,%%gs:%c1" :: "r" (teb->Tib.Self), "n" (FIELD_OFFSET(TEB, Tib.Self)) : "memory");
++    __asm__ volatile ("movq %0,%%gs:%c1" :: "r" (teb->ThreadLocalStoragePointer), "n" (FIELD_OFFSET(TEB, ThreadLocalStoragePointer)) : "memory");
++    __asm__ volatile ("movq %0,%%gs:%c1" :: "r" (teb->Peb), "n" (FIELD_OFFSET(TEB, Peb)) : "memory");
++    teb->Instrumentation[0] = thread_data->pthread_teb;
+ #else
+ # error Please define setting %gs for your architecture
+ #endif
+@@ -3196,7 +3195,12 @@
+  */
+ __ASM_GLOBAL_FUNC( __wine_syscall_dispatcher,
+                    __ASM_LOCAL_LABEL("__wine_syscall_dispatcher_gs_load") ":\n\t"
++#ifdef __APPLE__
++                   "movq %gs:0x30,%rcx\n\t"        /* teb */
++                   "movq 0x378(%rcx),%rcx\n\t"     /* thread_data->syscall_frame */
++#else
+                    "movq %gs:0x378,%rcx\n\t"       /* thread_data->syscall_frame */
++#endif
+                    "popq 0x70(%rcx)\n\t"           /* frame->rip */
+                    __ASM_CFI(".cfi_adjust_cfa_offset -8\n\t")
+                    __ASM_CFI_REG_IS_AT2(rip, rcx, 0xf0,0x00)
+@@ -3281,9 +3285,7 @@
+                    __ASM_CFI(".cfi_offset %r15,-0x38\n\t")
+                    __ASM_CFI(".cfi_undefined %rdi\n\t")
+                    __ASM_CFI(".cfi_undefined %rsi\n\t")
+-                   /* When on the kernel stack, use %r13 instead of %gs to access the TEB.
+-                    * (on macOS, signal handlers set gsbase to pthread_teb when on the kernel stack).
+-                    */
++                   /* Use %r13 to access the TEB on the kernel stack. */
+ #ifdef __linux__
+                    "movb $0,0x340(%r13)\n\t"       /* amd64_thread_data()->syscall_dispatch */
+                    "movq 0x320(%r13),%rsi\n\t"     /* amd64_thread_data()->pthread_teb */
+@@ -3320,12 +3322,6 @@
+                    "popq %r8\n\t"
+                    "leaq -0x98(%rbp),%rcx\n"
+                    "2:\n\t"
+-#elif defined __APPLE__
+-                   "movq 0x320(%r13),%rdi\n\t"     /* amd64_thread_data()->pthread_teb */
+-                   "xorl %esi,%esi\n\t"
+-                   "movl $0x3000003,%eax\n\t"      /* _thread_set_tsd_base */
+-                   "syscall\n\t"
+-                   "leaq -0x98(%rbp),%rcx\n"
+ #endif
+                    "ldmxcsr 0x33c(%r13)\n\t"       /* amd64_thread_data()->mxcsr */
+                    "movl 0xb0(%rcx),%eax\n\t"      /* frame->syscall_id */
+@@ -3378,15 +3374,6 @@
+                    "movw %dx,%ss\n\t"
+ # endif
+                    "1:\n\t"
+-#elif defined __APPLE__
+-                   "movq %rax,%r8\n\t"
+-                   "movq %rcx,%rdx\n\t"
+-                   "movq %r13,%rdi\n\t"            /* teb */
+-                   "xorl %esi,%esi\n\t"
+-                   "movl $0x3000003,%eax\n\t"      /* _thread_set_tsd_base */
+-                   "syscall\n\t"
+-                   "movq %rdx,%rcx\n\t"
+-                   "movq %r8,%rax\n\t"
+ #endif
+                    "movl 0xb4(%rcx),%edx\n\t"      /* frame->restore_flags */
+                    "testl $0x48,%edx\n\t"          /* CONTEXT_FLOATING_POINT | CONTEXT_XSTATE */
+@@ -3475,7 +3462,12 @@
+                    "popfq\n\t"
+                    "iretq\n"
+                    /* RESTORE_FLAGS_INSTRUMENTATION */
++#ifdef __APPLE__
++                   "2:\tmovq %gs:0x30,%r10\n\t"   /* teb */
++                   "movq 0x330(%r10),%r10\n\t"    /* amd64_thread_data()->instrumentation_callback */
++#else
+                    "2:\tmovq %gs:0x330,%r10\n\t"  /* amd64_thread_data()->instrumentation_callback */
++#endif
+                    "movq (%r10),%r10\n\t"
+                    "test %r10,%r10\n\t"
+                    "jz 3b\n\t"
+@@ -3534,7 +3526,12 @@
+                    "jmp " __ASM_LOCAL_LABEL("__wine_syscall_dispatcher_return") )
+ 
+ __ASM_GLOBAL_FUNC( __wine_syscall_dispatcher_instrumentation,
++#ifdef __APPLE__
++                   "movq %gs:0x30,%rcx\n\t"        /* teb */
++                   "movq 0x378(%rcx),%rcx\n\t"     /* thread_data->syscall_frame */
++#else
+                    "movq %gs:0x378,%rcx\n\t"       /* thread_data->syscall_frame */
++#endif
+                    "popq 0x70(%rcx)\n\t"           /* frame->rip */
+                    __ASM_CFI(".cfi_adjust_cfa_offset -8\n\t")
+                    __ASM_CFI_REG_IS_AT2(rip, rcx, 0xf0,0x00)
+@@ -3552,7 +3549,12 @@
+ __ASM_GLOBAL_FUNC( __wine_unix_call_dispatcher,
+                    "movq %rcx,%r10\n\t"
+                    __ASM_LOCAL_LABEL("__wine_unix_call_dispatcher_gs_load") ":\n\t"
++#ifdef __APPLE__
++                   "movq %gs:0x30,%rcx\n\t"        /* teb */
++                   "movq 0x378(%rcx),%rcx\n\t"     /* thread_data->syscall_frame */
++#else
+                    "movq %gs:0x378,%rcx\n\t"       /* thread_data->syscall_frame */
++#endif
+                    "popq 0x70(%rcx)\n\t"           /* frame->rip */
+                    __ASM_CFI(".cfi_adjust_cfa_offset -8\n\t")
+                    __ASM_CFI_REG_IS_AT2(rip, rcx, 0xf0,0x00)
+@@ -3636,11 +3638,6 @@
+                    "popq %r9\n\t"
+                    "popq %r8\n\t"
+                    "2:\n\t"
+-#elif defined __APPLE__
+-                   "movq 0x320(%r13),%rdi\n\t"     /* amd64_thread_data()->pthread_teb */
+-                   "xorl %esi,%esi\n\t"
+-                   "movl $0x3000003,%eax\n\t"      /* _thread_set_tsd_base */
+-                   "syscall\n\t"
+ #endif
+                    "ldmxcsr 0x33c(%r13)\n\t"       /* amd64_thread_data()->mxcsr */
+                    "movq %r8,%rdi\n\t"             /* args */
+@@ -3674,16 +3671,6 @@
+                    "movw %dx,%ss\n\t"
+ # endif
+                    "1:\n\t"
+-#elif defined __APPLE__
+-                   "movq %rax,%rdx\n\t"
+-                   "movq %rcx,%r14\n\t"
+-                   "movq %r13,%rdi\n\t"            /* teb */
+-                   "xorl %esi,%esi\n\t"
+-                   "movl $0x3000003,%eax\n\t"      /* _thread_set_tsd_base */
+-                   "syscall\n\t"
+-                   "movq %r14,%rcx\n\t"
+-                   "movq %rdx,%rax\n\t"
+-                   "movq 0x60(%rcx),%r14\n\t"
+ #endif
+                    "movq 0x58(%rcx),%r13\n\t"
+                    "movq 0x28(%rcx),%rdi\n\t"
+diff --git a/dlls/ntdll/loader.c b/dlls/ntdll/loader.c
+--- a/dlls/ntdll/loader.c
++++ b/dlls/ntdll/loader.c
+@@ -1393,6 +1393,10 @@
+             if (!new) return FALSE;
+             if (old) memcpy( new, old, old_module_count * sizeof(*new) );
+             teb->ThreadLocalStoragePointer = new;
++#if defined(__x86_64__) && defined(WINE_D3DMETAL_TSD)
++            if (teb->Instrumentation[0])
++                ((TEB *)teb->Instrumentation[0])->ThreadLocalStoragePointer = new;
++#endif
+             TRACE( "thread %04lx tls block %p -> %p\n", HandleToULong(teb->ClientId.UniqueThread), old, new );
+             /* FIXME: can't free old block here, should be freed at thread exit */
+         }
+@@ -1638,6 +1642,10 @@
+         TRACE( "slot %u: %u/%lu bytes at %p\n", i, size, dir->SizeOfZeroFill, pointers[i] );
+     }
+     NtCurrentTeb()->ThreadLocalStoragePointer = pointers;
++#if defined(__x86_64__) && defined(WINE_D3DMETAL_TSD)
++    if (NtCurrentTeb()->Instrumentation[0])
++        ((TEB *)NtCurrentTeb()->Instrumentation[0])->ThreadLocalStoragePointer = pointers;
++#endif
+     return STATUS_SUCCESS;
+ }
+ 
+@@ -3997,6 +4005,10 @@
+     if ((pointers = NtCurrentTeb()->ThreadLocalStoragePointer))
+     {
+         NtCurrentTeb()->ThreadLocalStoragePointer = NULL;
++#if defined(__x86_64__) && defined(WINE_D3DMETAL_TSD)
++        if (NtCurrentTeb()->Instrumentation[0])
++            ((TEB *)NtCurrentTeb()->Instrumentation[0])->ThreadLocalStoragePointer = NULL;
++#endif
+         for (i = 0; i < tls_module_count; i++) RtlFreeHeap( GetProcessHeap(), 0, pointers[i] );
+         RtlFreeHeap( GetProcessHeap(), 0, pointers );
+     }
+diff --git a/dlls/ntdll/signal_x86_64.c b/dlls/ntdll/signal_x86_64.c
+--- a/dlls/ntdll/signal_x86_64.c
++++ b/dlls/ntdll/signal_x86_64.c
+@@ -429,7 +429,12 @@
+                    "movl 0x28(%rsp),%edx\n\t"  /* len */
+                    "movl 0x2c(%rsp),%r8d\n\t"  /* id */
+ #ifdef __WINE_PE_BUILD
++#ifdef WINE_D3DMETAL_TSD
++                   "movq %gs:0x30,%rax\n\t"     /* teb */
++                   "movq 0x60(%rax),%rax\n\t"   /* peb */
++#else
+                    "movq %gs:0x60,%rax\n\t"     /* peb */
++#endif
+                    "movq 0x58(%rax),%rax\n\t"   /* peb->KernelCallbackTable */
+                    "call *(%rax,%r8,8)\n\t"     /* KernelCallbackTable[id] */
+                    ".seh_handler " __ASM_NAME("user_callback_handler") ", @except\n\t"
+@@ -839,7 +844,12 @@
+                    "movq %rax,0xf8(%rdx)\n\t"   /* context->Rip */
+                    "movq %rax,0x10(%rcx)\n\t"   /* rec->ExceptionAddress */
+                    "movl $1,%r8d\n\t"
++#ifdef WINE_D3DMETAL_TSD
++                   "movq %gs:0x30,%rax\n\t"     /* teb */
++                   "movq 0x60(%rax),%rax\n\t"   /* peb */
++#else
+                    "movq %gs:0x60,%rax\n\t"     /* Peb */
++#endif
+                    "cmpb $0,0x02(%rax)\n\t"     /* BeingDebugged */
+                    "jne 1f\n\t"
+                    "call " __ASM_NAME("dispatch_exception") "\n"
+@@ -1083,7 +1093,12 @@
+                    ".seh_stackalloc 0x28\n\t"
+                    ".seh_endprologue\n\t"
+                    ".seh_handler DbgUiRemoteBreakin_handler, @except\n\t"
++#ifdef WINE_D3DMETAL_TSD
++                   "movq %gs:0x30,%rax\n\t"     /* teb */
++                   "movq 0x60(%rax),%rax\n\t"   /* peb */
++#else
+                    "mov %gs:0x60,%rax\n\t"
++#endif
+                    "cmpb $0,2(%rax)\n\t"
+                    "je 1f\n\t"
+                    "call " __ASM_NAME("DbgBreakPoint") "\n"
+diff --git a/dlls/ntdll/unix/loader.c b/dlls/ntdll/unix/loader.c
+--- a/dlls/ntdll/unix/loader.c
++++ b/dlls/ntdll/unix/loader.c
+@@ -38,6 +38,7 @@
+ #include <sys/mman.h>
+ #include <sys/wait.h>
+ #include <unistd.h>
++#include <time.h>
+ #include <dlfcn.h>
+ #ifdef HAVE_PWD_H
+ # include <pwd.h>
+@@ -1943,6 +1944,42 @@
+     return 0;
+ }
+ 
++#if defined(__APPLE__) && defined(__x86_64__)
++static __thread struct tm localtime_tls;
++
++static struct tm *mac_localtime( const time_t *timep )
++{
++    return localtime_r( timep, &localtime_tls );
++}
++
++static void install_localtime_hook(void)
++{
++    struct
++    {
++        BYTE jump[8];
++        const void *target;
++    } hook = { { 0xff, 0x25, 0x02, 0, 0, 0, 0xcc, 0xcc }, mac_localtime };
++    void *func = localtime;
++    size_t page_size = sysconf( _SC_PAGESIZE );
++    ULONG_PTR page = (ULONG_PTR)func & ~(page_size - 1);
++    size_t size = ((ULONG_PTR)func + sizeof(hook) - page + page_size - 1) & ~(page_size - 1);
++
++    /* localtime() owns TSD+0x60, which holds the PEB in this variant. */
++    if (mprotect( (void *)page, size, PROT_READ | PROT_WRITE | PROT_EXEC ))
++    {
++        ERR( "cannot protect localtime entry: %s\n", strerror( errno ));
++        exit(1);
++    }
++    memcpy( func, &hook, sizeof(hook) );
++    if (mprotect( (void *)page, size, PROT_READ | PROT_EXEC ))
++    {
++        ERR( "cannot restore localtime protection: %s\n", strerror( errno ));
++        exit(1);
++    }
++}
++#endif
++
++
+ /***********************************************************************
+  *           start_main_thread
+  */
+@@ -2213,6 +2250,9 @@
+     set_max_limit( RLIMIT_NICE );
+ #endif
+ 
++#if defined(__APPLE__) && defined(__x86_64__)
++    install_localtime_hook();
++#endif
+     virtual_init();
+     init_environment();
+ 
