@@ -88,8 +88,13 @@ jobs:
           WINE_INSTALL: ${{ runner.temp }}/crossover-experimental/wine-install
           D3DMETAL_DIR: ${{ runner.temp }}/d3dmetal/${{ env.D3DMETAL_LABEL }}
         run: |
+          # The older CrossOver wrapper expects native helpers beside the PE helpers.
+          base="$RUNNER_TEMP/baseline-app/Gryphfield.app/Contents/Resources/engine"
+          for helper in gryphfield-discord gryphfield-hud; do
+            ln -s "../bin/$helper" "$base/tools/$helper"
+          done
           bash port/crossover-experimental/assemble.sh \
-            "$RUNNER_TEMP/baseline-app/Gryphfield.app/Contents/Resources/engine" \
+            "$base" \
             "$RUNNER_TEMP/dxmt/v0.80" "$RUNNER_TEMP/d3dmetal-ab/crossover-engine"
       - name: Compare thread initialization (informational)
         run: |
