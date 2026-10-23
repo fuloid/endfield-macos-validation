@@ -175,15 +175,16 @@ for mode in dxmt d3dmetal; do
         note "- LIMITATION $mode: macOS emitted no attributable Metal HUD records; HUD runtime logging is unverified on this runner."
     fi
 done
-# Child processes once dxgi.dll is loaded: on a real Mac, D3DMetal's dxgi (loaded by GRYPHLINK's
-# crash reporter) made Launcher.exe fault inside NtCreateUserProcess. wined3d is the control.
+# Child processes and DXGI initialization, with wined3d as the required control. The original
+# NtCreateUserProcess/fork hypothesis was disproved: D3DMetal's native thread init expects GSBASE
+# on macOS TSD, while upstream Wine >= 10.5 points it at the TEB in PE code (MR 6866).
 for mode in wined3d dxmt d3dmetal; do
     /bin/bash "$E" _graphics-selftest "$mode" "$TEST_TOOLS/spawn-probe.exe" spawn > "$OUT/spawn-$mode.log" 2>&1
     rc=$?
-    grep -E '^(spawn_|dxgi_loaded|factory_hr|adapter|result)' "$OUT/spawn-$mode.log"
-    steps="$(grep -E '^(spawn_[a-z_]+|factory_hr|adapter|result)=' "$OUT/spawn-$mode.log" | cut -d' ' -f1 | tr '\n' ' ')"
+    grep -E '^(spawn_|dxgi_loaded|factory|adapter|result)' "$OUT/spawn-$mode.log"
+    steps="$(grep -E '^(spawn_[a-z_]+|factory|factory_hr|adapter|adapter_hr|adapter_desc_hr|result)=' "$OUT/spawn-$mode.log" | cut -d' ' -f1 | tr '\n' ' ')"
     if [ "$mode" = wined3d ]; then
-        check 'wined3d: child processes start before and after dxgi loads' grep -q '^result=ok' "$OUT/spawn-$mode.log"
+        check 'wined3d: child processes, DXGI factory and adapter succeed' grep -q '^result=ok' "$OUT/spawn-$mode.log"
     else
         note "- INFO $mode: spawn probe exit $rc: $steps(see spawn-$mode.log)"
     fi

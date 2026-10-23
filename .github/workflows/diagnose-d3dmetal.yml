@@ -1,0 +1,105 @@
+name: Diagnose D3DMetal thread initialization
+
+'on':
+  workflow_dispatch:
+    inputs:
+      baseline_app_run_id:
+        description: 'Wine 11.19 app artifact to compare with CrossOver'
+        type: string
+        default: '39913002430'
+        required: true
+      wine_cache_key:
+        description: 'Exact full CrossOver install cache; rebuild with validate-crossover.yml if evicted'
+        type: string
+        default: 'crossover-install-v1-macOS-ARM64-901a34458ac13190c6f2c798aa9ab5119222fd90ae90c117ff5efb92cb2b82e7'
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  compare:
+    runs-on: macos-15
+    timeout-minutes: 40
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+      HOMEBREW_NO_INSTALL_CLEANUP: '1'
+      D3DMETAL_VERSION: 4.0b3-gryphfield-1
+      D3DMETAL_LABEL: d3dmetal-4.0b3
+      D3DMETAL_URL: https://s.purin.my/akef/d3dmetal-4.0b3-gryphfield-1.tar.xz
+      D3DMETAL_SHA256: 5243f4c000b4235096a5c1a9d2891b5ceffc315000d35e198a8f8352a195f7f0
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Record environment
+        run: |
+          mkdir -p "$RUNNER_TEMP/d3dmetal-ab/evidence"
+          { sw_vers; uname -a; xcodebuild -version; git rev-parse HEAD; } > "$RUNNER_TEMP/d3dmetal-ab/evidence/environment.txt"
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        id: wine
+        with:
+          path: ${{ runner.temp }}/d3dmetal-ab/wine-install
+          key: ${{ inputs.wine_cache_key }}
+      - name: Require the full matching CrossOver install
+        run: |
+          test '${{ steps.wine.outputs.cache-hit }}' = true
+          cmp port/crossover-experimental/sources.lock.json "$RUNNER_TEMP/d3dmetal-ab/wine-install/sources.lock.json"
+          cp "$RUNNER_TEMP/d3dmetal-ab/wine-install/BUILD-INFO.txt" "$RUNNER_TEMP/d3dmetal-ab/evidence/crossover-build.txt"
+          nm -gU "$RUNNER_TEMP/d3dmetal-ab/wine-install/lib/wine/x86_64-unix/winemac.so" | grep ' _macdrv_functions$'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: Gryphfield-macos
+          run-id: ${{ inputs.baseline_app_run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/baseline-download
+      - name: Verify app and pinned graphics payloads
+        run: |
+          (cd "$RUNNER_TEMP/baseline-download" && shasum -a 256 -c Gryphfield-macos.zip.sha256)
+          ditto -x -k "$RUNNER_TEMP/baseline-download/Gryphfield-macos.zip" "$RUNNER_TEMP/baseline-app"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/d3dmetal.tar.xz" "$D3DMETAL_URL"
+          echo "$D3DMETAL_SHA256  $RUNNER_TEMP/d3dmetal.tar.xz" | shasum -a 256 -c
+          mkdir "$RUNNER_TEMP/d3dmetal"
+          tar -xJf "$RUNNER_TEMP/d3dmetal.tar.xz" -C "$RUNNER_TEMP/d3dmetal"
+          base="$RUNNER_TEMP/baseline-app/Gryphfield.app/Contents/Resources/engine/wine-d3dmetal/lib"
+          payload="$RUNNER_TEMP/d3dmetal/$D3DMETAL_LABEL"
+          # App packaging re-signs Mach-O images; PE DLLs still compare byte for byte.
+          dwarfdump --uuid "$base/external/libd3dshared.dylib" "$payload/external/libd3dshared.dylib" \
+            > "$RUNNER_TEMP/d3dmetal-ab/evidence/d3dmetal-images.txt"
+          for dll in dxgi d3d11; do
+            cmp "$base/wine/x86_64-windows/$dll.dll" "$payload/x86_64-windows/$dll.dll"
+          done
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/dxmt.tar.gz" https://github.com/3Shain/dxmt/releases/download/v0.80/dxmt-v0.80-builtin.tar.gz
+          echo "8f260e36b5739e68f3bad613381441385c4dc7b85b78ba8de653d5a6a264529d  $RUNNER_TEMP/dxmt.tar.gz" | shasum -a 256 -c
+          mkdir "$RUNNER_TEMP/dxmt"
+          tar -xzf "$RUNNER_TEMP/dxmt.tar.gz" -C "$RUNNER_TEMP/dxmt"
+      - name: Build spawn probe
+        run: |
+          brew install mingw-w64 >/dev/null
+          x86_64-w64-mingw32-gcc -O2 -Wall -Wextra -Werror engine/tests/spawn-probe.c \
+            -o "$RUNNER_TEMP/d3dmetal-ab/spawn-probe.exe" -ldxguid
+      - name: Assemble full CrossOver engine with D3DMetal
+        env:
+          WINE_INSTALL: ${{ runner.temp }}/d3dmetal-ab/wine-install
+          D3DMETAL_DIR: ${{ runner.temp }}/d3dmetal/${{ env.D3DMETAL_LABEL }}
+        run: |
+          bash port/crossover-experimental/assemble.sh \
+            "$RUNNER_TEMP/baseline-app/Gryphfield.app/Contents/Resources/engine" \
+            "$RUNNER_TEMP/dxmt/v0.80" "$RUNNER_TEMP/d3dmetal-ab/crossover-engine"
+      - name: Compare thread initialization (informational)
+        run: |
+          python3 engine/tests/ci-d3dmetal-ab.py \
+            "$RUNNER_TEMP/baseline-app/Gryphfield.app/Contents/Resources/engine" \
+            "$RUNNER_TEMP/d3dmetal-ab/crossover-engine" \
+            "$RUNNER_TEMP/d3dmetal-ab/spawn-probe.exe" "$RUNNER_TEMP/d3dmetal-ab/evidence"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: d3dmetal-ab-evidence
+          path: ${{ runner.temp }}/d3dmetal-ab/evidence
+          retention-days: 7

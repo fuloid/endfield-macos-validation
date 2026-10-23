@@ -1,7 +1,6 @@
-/* Does starting a child process still work once dxgi.dll is loaded? Under D3DMetal, GRYPHLINK's
- * Launcher.exe (whose crash reporter loads dxgi) faulted inside NtCreateUserProcess on a real Mac.
- * Each step prints one key=value line, flushed, so a crash shows how far it got. Exit 0 when all
- * three process starts work, 1 when one fails. */
+/* Exercise child processes, DXGI factory creation and adapter enumeration separately.
+ * Each step prints key=value lines, flushed, so a crash shows how far it got.
+ * Exit 0 only when all three process starts, the factory and the adapter succeed. */
 #define COBJMACROS
 #include <windows.h>
 #include <dxgi.h>
@@ -49,17 +48,38 @@ int main(void)
 
     dxgi = LoadLibraryA("dxgi.dll");
     printf("dxgi_loaded=%s\n", dxgi ? "yes" : "no");
-    if (!dxgi) return 1;
+    if (!dxgi)
+    {
+        printf("factory=failed\nadapter=skipped\nresult=failed\n");
+        return 1;
+    }
     ok &= spawn("spawn_after_load");
 
     create_factory = (void *)GetProcAddress(dxgi, "CreateDXGIFactory1");
+    printf("factory=starting\n");
     hr = create_factory ? create_factory(&IID_IDXGIFactory1, (void **)&factory) : E_NOINTERFACE;
     printf("factory_hr=0x%08lx\n", (unsigned long)hr);
-    if (SUCCEEDED(hr) && SUCCEEDED(IDXGIFactory1_EnumAdapters1(factory, 0, &adapter))
-        && SUCCEEDED(IDXGIAdapter1_GetDesc1(adapter, &desc)))
-        printf("adapter=%ls vendor=0x%04x\n", desc.Description, desc.VendorId);
+    printf("factory=%s\n", SUCCEEDED(hr) && factory ? "ok" : "failed");
+    if (SUCCEEDED(hr) && factory)
+    {
+        printf("adapter=starting\n");
+        hr = IDXGIFactory1_EnumAdapters1(factory, 0, &adapter);
+        printf("adapter_hr=0x%08lx\n", (unsigned long)hr);
+        if (SUCCEEDED(hr) && adapter)
+        {
+            hr = IDXGIAdapter1_GetDesc1(adapter, &desc);
+            printf("adapter_desc_hr=0x%08lx\n", (unsigned long)hr);
+            if (SUCCEEDED(hr))
+                printf("adapter_name=%ls vendor=0x%04x\n", desc.Description, desc.VendorId);
+        }
+        printf("adapter=%s\n", SUCCEEDED(hr) && adapter ? "ok" : "failed");
+        ok &= SUCCEEDED(hr) && adapter != NULL;
+    }
     else
-        printf("adapter=none\n");
+    {
+        printf("adapter=skipped\n");
+        ok = 0;
+    }
     ok &= spawn("spawn_after_factory");
 
     if (adapter) IDXGIAdapter1_Release(adapter);
