@@ -8,7 +8,7 @@ const bytes = (text: string) => new TextEncoder().encode(text);
 const text = (value: unknown) => new TextDecoder().decode(Uint8Array.from(value as number[]));
 const button = (s: NativeSnapshot, name: string) => findWidget(s, { role: "button", name });
 const note = (s: NativeSnapshot) => text(s.model.profileNote);
-const spawn = (s: NativeSnapshot) => s.effects.spawns.find(p => text(p.argv[2]) === "profile-cpu")!;
+const spawn = (s: NativeSnapshot) => s.effects.spawns.find(p => p.argv.length > 2 && text(p.argv[2]) === "profile-cpu")!;
 
 // Physical clicks require the button to be inside the Settings scroll viewport.
 // Use the same wheel interaction a user needs, including at the SDK's 640x480 default.

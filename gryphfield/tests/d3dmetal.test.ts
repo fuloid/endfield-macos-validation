@@ -1,12 +1,27 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { NativeApp, findWidget, type NativeSnapshot } from "@native-sdk/core/testing";
-import { serviceBoolBytes, serviceBytes, serviceConcat } from "@native-sdk/core";
+import { serviceBoolBytes, serviceBytes, serviceConcat, serviceEnumBytes, serviceI64Bytes } from "@native-sdk/core";
+import { parse } from "../src/services/engine.ts";
 
 const bytes = (text: string) => new TextEncoder().encode(text);
 const text = (value: unknown) => new TextDecoder().decode(Uint8Array.from(value as number[]));
 const button = (s: NativeSnapshot, name: string) => findWidget(s, { role: "button", name });
 const shown = (s: NativeSnapshot) => s.widgets.map(w => `${w.name} ${w.text}`).join(" ").replace(/\s+/g, " ");
+
+// Answer the status parser request at the service wire boundary, as in profile.test.ts.
+function eventWire(raw: object): Uint8Array {
+  const e = parse({ line: bytes(JSON.stringify(raw)) });
+  const names = ["status", "step", "launcher_started", "launcher_minimized", "game_started", "unity_started", "unity_stable", "game_exited", "profile", "failed", "logs", "location", "done", "unknown"];
+  return serviceConcat([
+    serviceEnumBytes(names.indexOf(e.event)),
+    ...[e.ok, e.rosetta, e.prefixReady, e.gryphlinkInstalled, e.gameInstalled, e.wineserverRunning, e.gryphlinkRunning, e.endfieldRunning, e.unityRunning].map(serviceBoolBytes),
+    serviceI64Bytes(e.exitCode),
+    ...[e.engineVersion, e.wineVersion, e.gryphlinkVersion, e.graphics, e.prefixPath, e.gryphlinkPath, e.gamePath, e.locationPath].map(serviceBytes),
+    serviceBoolBytes(e.locationCustom), serviceBoolBytes(e.locationAvailable),
+    ...[e.logPath, e.step, e.state, e.message, e.errorCode].map(serviceBytes),
+  ]);
+}
 
 // Boot like the app does, then answer the host version probe the way `sw_vers -productVersion` would.
 async function boot(app: NativeApp, version?: string) {
@@ -74,7 +89,10 @@ test("a saved d3dmetal setting is shown and used as dxmt below 26.4, in either a
     const probe = s.effects.spawns.find(p => text(p.argv[0]) === "/usr/bin/sw_vers")!;
     const version = () => app.streamLine(probe.key, bytes("26.3.1"));
     if (versionFirst) s = await version();
-    s = await app.streamLine(main.key, bytes(JSON.stringify({ event: "status", prefix: { path: "/tmp/prefix", ready: true } })));
+    const status = { event: "status", prefix: { path: "/tmp/prefix", ready: true } };
+    s = await app.streamLine(main.key, bytes(JSON.stringify(status)));
+    const request = s.effects.requests.find(r => r.name === "engine.parse")!;
+    s = await app.respond(request.key, eventWire(status));
     const load = s.effects.requests.find(r => r.name === "settings.load")!;
     s = await app.respond(load.key, settingsWire("d3dmetal"));
     if (!versionFirst) s = await version();
