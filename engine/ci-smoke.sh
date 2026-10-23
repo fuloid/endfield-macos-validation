@@ -22,9 +22,9 @@ done_ok() { grep -q '"event":"done","ok":true' "$1"; }
 
 note '## Gryphfield engine smoke test'
 # Exercise the real mode/tree/environment selection without starting Wine.
-for version in 26.3 26 26.4 26.10 27.0 27; do
+for version in 15.7.9 26.3 26 26.4 26.10 27.0 27; do
     expected=d3dmetal
-    case "$version" in 26.3|26) expected=dxmt ;; esac
+    case "$version" in 15.7.9|26.3|26) expected=dxmt ;; esac
     GRYPHFIELD_TEST_MACOS_VERSION="$version" /bin/bash "$E" _wine-mode-selftest d3dmetal \
         > "$OUT/mode-$version.jsonl" 2> "$OUT/mode-$version.err"
     framework=""
@@ -109,7 +109,9 @@ if [ -x "$ENGINE/wine-d3dmetal/bin/wine" ]; then
     check 'D3DMetal: the framework binary resolves' test -f "$d3dm/external/D3DMetal.framework/D3DMetal"
     check "D3DMetal: d3d11.dll is Apple's" grep -q 'D3DMetalDLLsBase' "$d3dm/wine/x86_64-windows/d3d11.dll"
     printf '{"debug_logging":true}\n' > "$OUT/home/config.json"
-    launch d3dmetal 0
+    # The macos-15 VM is below the production gate. Bypass it only for D3DMetal
+    # integration fixtures, so these still exercise the variant rather than DXMT.
+    GRYPHFIELD_TEST_MACOS_VERSION=26.4 launch d3dmetal 0
     check 'D3DMetal mode uses the D3DMetal Wine tree' grep -q '^# graphics: d3dmetal (tree .*/wine-d3dmetal)' "$OUT/wine-d3dmetal.log"
     note "- INFO D3DMetal: $(grep -c 'wine-d3dmetal.*d3d11' "$OUT/wine-d3dmetal.log" 2>/dev/null) d3d11 load lines; $(grep -c 'Failed to dlopen D3DMetal' "$OUT/wine-d3dmetal.log" 2>/dev/null) 'Failed to dlopen D3DMetal'"
     rm -f "$OUT/home/config.json"
@@ -169,7 +171,7 @@ check 'D3DMetal framework loads on this macOS runtime' env \
     "$TEST_TOOLS/framework-probe" "$ENGINE/wine-d3dmetal/lib/external/D3DMetal.framework/D3DMetal"
 for mode in dxmt d3dmetal; do
     printf '{"metal_hud_log":"frame"}\n' > "$OUT/home/config.json"
-    /bin/bash "$E" _graphics-selftest "$mode" "$TEST_TOOLS/d3d11-probe.exe" > "$OUT/device-$mode.log" 2>&1
+    GRYPHFIELD_TEST_MACOS_VERSION=26.4 /bin/bash "$E" _graphics-selftest "$mode" "$TEST_TOOLS/d3d11-probe.exe" > "$OUT/device-$mode.log" 2>&1
     rc=$?
     cat "$OUT/device-$mode.log"
     cp "$OUT/logs/latest-metal-hud.log" "$OUT/hud-$mode.log" 2>/dev/null
@@ -201,7 +203,7 @@ for mode in wined3d dxmt d3dmetal; do
     # Evidence for lingering servers or fixtures (should now be empty).
     { date -u +%H:%M:%S; ps -axww -o pid,ppid,etime,pcpu,command | grep -Ei 'wine|d3dmetal' | grep -v grep; } \
         > "$OUT/processes-before-spawn-$mode.log" 2>&1
-    /bin/bash "$E" _graphics-selftest "$mode" "$TEST_TOOLS/spawn-probe.exe" spawn > "$OUT/spawn-$mode.log" 2>&1
+    GRYPHFIELD_TEST_MACOS_VERSION=26.4 /bin/bash "$E" _graphics-selftest "$mode" "$TEST_TOOLS/spawn-probe.exe" spawn > "$OUT/spawn-$mode.log" 2>&1
     rc=$?
     grep -E '^(warmup_s|fixture_s|spawn_|dxgi_loaded|factory|adapter|result)' "$OUT/spawn-$mode.log"
     steps="$(grep -E '^(spawn_[a-z_]+|factory|factory_hr|adapter|adapter_hr|adapter_desc_hr|result)=' "$OUT/spawn-$mode.log" | cut -d' ' -f1 | tr '\n' ' ')"
