@@ -732,8 +732,10 @@ case "$command" in
         use_wine "$1"
         if [ "${3:-}" = spawn ]; then
             # Keep cold prefix/services startup outside the graphics fixture's watchdog.
+            warmup_start=$SECONDS
             "$WINESERVER" -p
             "$WINE" cmd /c exit 0 || exit "$?"
+            echo "warmup_s=$((SECONDS - warmup_start))"
         fi
         LOG_CAP_MB="$(log_cap_mb)"
         perf_start
@@ -750,6 +752,7 @@ case "$command" in
         done
         wait "$fixture_pid"
         rc=$?
+        [ "${3:-}" = spawn ] && echo "fixture_s=$((SECONDS - fixture_start))"
         perf_stop
         exit "$rc" ;;
     *) fail UNKNOWN_COMMAND "Unknown command: $command" ;;

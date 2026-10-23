@@ -6,6 +6,15 @@
 #include <dxgi.h>
 #include <stdio.h>
 
+static ULONGLONG t0;
+
+static void stamp(const char *label)   /* elapsed milliseconds since main() began */
+{
+    printf("%s_ms=%llu
+", label, (unsigned long long)(GetTickCount64() - t0));
+    fflush(stdout);
+}
+
 static int spawn(const char *label)
 {
     STARTUPINFOW si;
@@ -44,6 +53,7 @@ int main(void)
     int ok = 1;
 
     setvbuf(stdout, NULL, _IONBF, 0);
+    t0 = GetTickCount64();
     ok &= spawn("spawn_before_dxgi");
 
     dxgi = LoadLibraryA("dxgi.dll");
