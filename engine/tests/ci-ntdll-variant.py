@@ -131,10 +131,12 @@ def main():
                 gpu_unsupported='GPU not supported:' in content,
                 nsalert='NSAlert' in sample,
                 d3dmetal_thread_alive='D3DMetalWineThread' in sample,
+                unhandled_fault=bool(re.search(r'Unhandled (?:page fault|exception)', content, re.I)),
                 pthread_fault=bool(re.search(r'(?:Unhandled page fault|page fault on (?:read|write)|code=c0000005)',
                                             content, re.I)) and
                               ('libsystem_pthread' in content or 'pthread_setname_np' in content))
             test['passed_thread_init'] = (test['d3dmetal_thread_alive'] and not test['pthread_fault'] and
+                                         not test['unhandled_fault'] and
                                          (test['gpu_unsupported'] or test['nsalert'] or 'factory_hr' in test['fields']))
             test['passed_spawn'] = test['exit_code'] == 0 and test['fields'].get('result') == 'ok'
             run(cli + ['kill'], env, out / f'kill-{label}.log', 30)
