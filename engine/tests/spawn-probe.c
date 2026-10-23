@@ -10,8 +10,7 @@ static ULONGLONG t0;
 
 static void stamp(const char *label)   /* elapsed milliseconds since main() began */
 {
-    printf("%s_ms=%llu
-", label, (unsigned long long)(GetTickCount64() - t0));
+    printf("%s_ms=%llu\n", label, (unsigned long long)(GetTickCount64() - t0));
     fflush(stdout);
 }
 
@@ -39,6 +38,7 @@ static int spawn(const char *label)
     CloseHandle(pi.hProcess);
     printf("%s=%s exit=%lu\n", label, wait == WAIT_OBJECT_0 && code == 7 ? "ok" : "bad", code);
     fflush(stdout);
+    stamp(label);
     return wait == WAIT_OBJECT_0 && code == 7;
 }
 
@@ -58,6 +58,7 @@ int main(void)
 
     dxgi = LoadLibraryA("dxgi.dll");
     printf("dxgi_loaded=%s\n", dxgi ? "yes" : "no");
+    stamp("dxgi_loaded");
     if (!dxgi)
     {
         printf("factory=failed\nadapter=skipped\nresult=failed\n");
@@ -69,6 +70,7 @@ int main(void)
     printf("factory=starting\n");
     hr = create_factory ? create_factory(&IID_IDXGIFactory1, (void **)&factory) : E_NOINTERFACE;
     printf("factory_hr=0x%08lx\n", (unsigned long)hr);
+    stamp("factory");
     printf("factory=%s\n", SUCCEEDED(hr) && factory ? "ok" : "failed");
     if (SUCCEEDED(hr) && factory)
     {
