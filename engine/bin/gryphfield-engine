@@ -730,6 +730,11 @@ case "$command" in
     _discord-selftest) cmd_discord_selftest "$@" ;;   # for engine/ci-smoke.sh
     _graphics-selftest)   # mode fixture.exe [stacks-label]: harmless fixture, real launch environment and HUD collector
         use_wine "$1"
+        if [ "${3:-}" = spawn ]; then
+            # Keep cold prefix/services startup outside the graphics fixture's watchdog.
+            "$WINESERVER" -p
+            "$WINE" cmd /c exit 0 || exit "$?"
+        fi
         LOG_CAP_MB="$(log_cap_mb)"
         perf_start
         export WINEDEBUG="$WINEDEBUG,+seh,+unwind,+macdrv"

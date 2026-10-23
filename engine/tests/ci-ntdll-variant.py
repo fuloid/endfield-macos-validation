@@ -29,6 +29,29 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def run_factory_sample(command, env, log, sample):
+    with log.open('w') as output:
+        process = subprocess.Popen([str(x) for x in command], env=env, stdout=output,
+                                   stderr=subprocess.STDOUT, start_new_session=True)
+        deadline = time.monotonic() + 90
+        factory_seen = None
+        sampled = False
+        while process.poll() is None:
+            now = time.monotonic()
+            if factory_seen is None and re.search(r'^factory=starting\r?$', log.read_text(errors='replace'), re.M):
+                factory_seen = now
+            if factory_seen is not None and now >= factory_seen + 3 and not sampled:
+                subprocess.run(['/usr/bin/sample', str(process.pid), '2', '10', '-file', str(sample)],
+                               stdout=output, stderr=subprocess.STDOUT, timeout=20, check=False)
+                sampled = True
+            if now >= deadline:
+                os.killpg(process.pid, signal.SIGKILL)
+                process.wait()
+                return {'exit_code': process.returncode, 'timed_out': True, 'factory_sampled': sampled}
+            time.sleep(0.25)
+        return {'exit_code': process.returncode, 'timed_out': False, 'factory_sampled': sampled}
+
+
 def reports():
     root = Path.home() / 'Library/Logs/DiagnosticReports'
     return {p: p.stat().st_mtime_ns for p in root.rglob('*') if p.is_file()}
@@ -104,7 +127,7 @@ def main():
         require(all(hashes['wine'][arch] != hashes['wine-d3dmetal'][arch] for arch in hashes['wine']),
                 'both variant ntdll files differ from normal')
 
-        # Use the existing launcher fixture, including its sample at 30s and 45s watchdog.
+        # Prepare the launcher prefix, then sample the factory rather than a timed child spawn.
         home = out / 'graphics-home'
         logs = out / 'graphics-logs'
         env = dict(os.environ, GRYPHFIELD_HOME=str(home), GRYPHFIELD_LOGS=str(logs))
@@ -118,17 +141,23 @@ def main():
         shutil.copy2(engine / 'wine-dxmt/lib/wine/x86_64-windows/winemetal.dll',
                      home / 'prefix/drive_c/windows/system32/winemetal.dll')
 
-        def spawn(label, mode):
+        logs.mkdir(exist_ok=True)
+
+        def spawn(label, mode, renderer=None):
             tree = engine / {'wined3d': 'wine', 'dxmt': 'wine-dxmt', 'd3dmetal': 'wine-d3dmetal'}[mode]
             runtime = environment(tree, home / 'prefix')
+            if (renderer or mode) == 'wined3d':
+                runtime['WINE_D3D_CONFIG'] = 'renderer=vulkan'
+            else:
+                runtime.pop('WINE_D3D_CONFIG', None)
             run([tree / 'bin/wineserver', '-p'], runtime, out / f'persist-{label}.log', 30)
             warmup = run([tree / 'bin/wine', 'cmd', '/c', 'exit', '0'], runtime,
                          out / f'warmup-{label}.log', 180)
             before = reports()
             log = out / f'spawn-{label}.log'
-            test = run(cli + ['_graphics-selftest', mode, tools / 'spawn-probe.exe', label], env, log, 110)
-            content = log.read_text(errors='replace')
             sample_path = logs / f'{label}-{mode}-stacks.txt'
+            test = run_factory_sample([tree / 'bin/wine', tools / 'spawn-probe.exe'], runtime, log, sample_path)
+            content = log.read_text(errors='replace')
             sample = sample_path.read_text(errors='replace') if sample_path.exists() else ''
             test.update(warmup=warmup, fields=dict(re.findall(
                 r'^(spawn_[a-z_]+|dxgi_loaded|factory|factory_hr|adapter|adapter_hr|adapter_desc_hr|result)=([^\s]+)',
@@ -186,7 +215,7 @@ def main():
                         original = engine / tree / 'lib/wine' / arch / file
                         if original.exists():
                             shutil.copy2(original, dest)
-                    test = results['variant_controls'][mode] = spawn('variant-' + mode, 'd3dmetal')
+                    test = results['variant_controls'][mode] = spawn('variant-' + mode, 'd3dmetal', renderer=mode)
                     if mode == 'wined3d':
                         require(test['passed_spawn'], 'variant WineD3D spawn/factory/adapter')
                     save()
