@@ -2,7 +2,7 @@ GRYPHFIELD WINDOWS DEMO
 
 Double-click "Launch Gryphfield Demo" (or bin\gryphfield-demo.exe).
 Keep the entire folder together at
-D:\Jimu\gryphfield-windows-demo (runtime paths are set when built).
+D:\Jimu\endfield-dev\gryphfield-windows-demo (runtime paths are set when built).
 Node 24 is already installed on this PC and is used by the mock engine.
 
 This is the real Native SDK UI, with a fake engine. No Wine, game, Rosetta,
@@ -13,7 +13,7 @@ session stays running so the stop, restart and kill controls can be tried.
 Settings are saved locally. Uninstall and reset only affect demo placeholders.
 
 SCENARIOS (PowerShell, in this folder)
-  cd D:\Jimu\gryphfield-windows-demo
+  cd D:\Jimu\endfield-dev\gryphfield-windows-demo
   node mock-engine.mjs mock-game on
   node mock-engine.mjs mock-game off
   node mock-engine.mjs mock-fail parent

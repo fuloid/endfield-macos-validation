@@ -1,5 +1,5 @@
 param(
-    [string]$OutputDirectory = 'D:\Jimu\gryphfield-windows-demo',
+    [string]$OutputDirectory = 'D:\Jimu\endfield-dev\gryphfield-windows-demo',
     [string]$ZigDirectory = 'C:\Users\Pintu Masuk\.t3\scratch\2026-10-16-hi-i-want-to-make-d00919c3\zig-x86_64-windows-0.16.0'
 )
 $ErrorActionPreference = 'Stop'

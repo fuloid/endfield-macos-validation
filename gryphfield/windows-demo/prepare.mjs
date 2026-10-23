@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 if (process.platform !== "win32") throw new Error("The demo overlay is only for Windows.");
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const output = resolve(process.argv[2] ?? "D:/Jimu/gryphfield-windows-demo");
+const output = resolve(process.argv[2] ?? "D:/Jimu/endfield-dev/gryphfield-windows-demo");
 const stage = join(root, ".windows-demo", "app");
 mkdirSync(stage, { recursive: true });
 mkdirSync(output, { recursive: true });

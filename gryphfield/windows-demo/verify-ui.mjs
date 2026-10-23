@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 
 if (process.platform !== "win32") throw new Error("This smoke check is only for Windows.");
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const output = resolve(process.argv[2] ?? "D:/Jimu/gryphfield-windows-demo");
+const output = resolve(process.argv[2] ?? "D:/Jimu/endfield-dev/gryphfield-windows-demo");
 const cli = join(root, ".windows-demo/app/.native/sdk/bin/native.js");
 const env = { ...process.env, GRYPHFIELD_DEMO_FAIL: "" };
 const screenshots = join(output, "screenshots");

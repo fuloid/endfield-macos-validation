@@ -26,7 +26,7 @@ The actual app invokes `/Applications/Gryphfield.app/Contents/Resources/engine/b
 
 ## Windows UI demo
 
-Run `powershell -ExecutionPolicy Bypass -File windows-demo/build.ps1` on Windows with Node 24 and Zig 0.16.0. The default output is `D:\Jimu\gryphfield-windows-demo`; double-click `bin\gryphfield-demo.exe` and follow `START-HERE.txt` for game-presence, failure, reset and fake macOS version scenarios. Override `-ZigDirectory` or `-OutputDirectory` when needed. Runtime paths are bound to the output directory and installed Node executable at build time; rebuild to relocate them.
+Run `powershell -ExecutionPolicy Bypass -File windows-demo/build.ps1` on Windows with Node 24 and Zig 0.16.0. The default output is `D:\Jimu\endfield-dev\gryphfield-windows-demo`; double-click `bin\gryphfield-demo.exe` and follow `START-HERE.txt` for game-presence, failure, reset and fake macOS version scenarios. Override `-ZigDirectory` or `-OutputDirectory` when needed. Runtime paths are bound to the output directory and installed Node executable at build time; rebuild to relocate them.
 
 This explicit build creates an ignored `.windows-demo/app` overlay of the same view and services. Only the overlay's manifest and initial engine/probe commands change. The production `app.json`, `src/core.ts`, `src/app.native` and macOS CI remain untouched. The Windows mock uses local placeholders, streams a simulated stable session in about five seconds, and keeps it marked running for stop/restart/kill. No game, Wine, graphics layer or installer runs. Folder selection stays at the demo folder; CPU capture writes an explanatory text file.
 
