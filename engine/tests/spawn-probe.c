@@ -26,6 +26,7 @@ static int spawn(const char *label)
 
     printf("%s=starting\n", label);
     fflush(stdout);
+    stamp(label);
     if (!CreateProcessW(NULL, cmd, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi))
     {
         printf("%s=failed error=%lu\n", label, GetLastError());
@@ -54,8 +55,10 @@ int main(void)
 
     setvbuf(stdout, NULL, _IONBF, 0);
     t0 = GetTickCount64();
+    stamp("main");
     ok &= spawn("spawn_before_dxgi");
 
+    stamp("dxgi_loading");
     dxgi = LoadLibraryA("dxgi.dll");
     printf("dxgi_loaded=%s\n", dxgi ? "yes" : "no");
     stamp("dxgi_loaded");
@@ -68,6 +71,7 @@ int main(void)
 
     create_factory = (void *)GetProcAddress(dxgi, "CreateDXGIFactory1");
     printf("factory=starting\n");
+    stamp("factory_starting");
     hr = create_factory ? create_factory(&IID_IDXGIFactory1, (void **)&factory) : E_NOINTERFACE;
     printf("factory_hr=0x%08lx\n", (unsigned long)hr);
     stamp("factory");
@@ -92,10 +96,12 @@ int main(void)
         printf("adapter=skipped\n");
         ok = 0;
     }
+    stamp("adapter");
     ok &= spawn("spawn_after_factory");
 
     if (adapter) IDXGIAdapter1_Release(adapter);
     if (factory) IDXGIFactory1_Release(factory);
     printf("result=%s\n", ok ? "ok" : "failed");
+    stamp("result");
     return ok ? 0 : 1;
 }

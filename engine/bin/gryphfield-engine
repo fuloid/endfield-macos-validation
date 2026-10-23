@@ -733,8 +733,8 @@ case "$command" in
         if [ "${3:-}" = spawn ]; then
             # Keep cold prefix/services startup outside the graphics fixture's watchdog.
             warmup_start=$SECONDS
-            "$WINESERVER" -p
-            "$WINE" cmd /c exit 0 || exit "$?"
+            run_timeout 20 "$WINESERVER" -p || exit "$?"
+            run_timeout 120 "$WINE" cmd /c exit 0 || exit "$?"
             echo "warmup_s=$((SECONDS - warmup_start))"
         fi
         LOG_CAP_MB="$(log_cap_mb)"
