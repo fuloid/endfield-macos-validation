@@ -1,0 +1,25 @@
+From: Gryphfield
+Subject: [PATCH] ntdll: Preserve the native TSD in repaired full signal contexts.
+
+EXPERIMENTAL, CI/review only. Do not ship in a release.
+
+The selective CrossOver GS-model port restores the native TSD on signal entry.
+When invalid-GS recovery recognizes a corrupt interrupted base in a full
+context, update that saved base too. A host restoring the full state on
+sigreturn must not reinstall the corrupt value. Contexts without GSBASE still
+avoid blind retries. No Linux or FreeBSD path changes.
+---
+diff --git a/dlls/ntdll/unix/signal_x86_64.c b/dlls/ntdll/unix/signal_x86_64.c
+--- a/dlls/ntdll/unix/signal_x86_64.c
++++ b/dlls/ntdll/unix/signal_x86_64.c
+@@ -2382,7 +2382,9 @@
+ #elif defined(__NetBSD__)
+     sysarch( X86_64_SET_GSBASE, &data->teb );
+ #elif defined(__APPLE__)
+-    /* init_handler() has restored GSBASE to pthread_teb. */
++    /* Preserve the repaired native base when the full context is restored. */
++    ((_STRUCT_MCONTEXT64_FULL *)ucontext->uc_mcontext)->__ss.__gsbase =
++        (ULONG_PTR)amd64_thread_data( data )->pthread_teb;
+ #endif
+     return TRUE;
+ }

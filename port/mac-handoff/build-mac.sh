@@ -132,20 +132,22 @@ build_d3dmetal_ntdll() (
     [ ! -e "$saved" ] || die "$saved already exists; inspect the previous variant build."
     cp -pR "$BUILD/dlls/ntdll" "$saved"
     restore_ntdll() {
-        local status=$?
+        local status=$? i
         trap - EXIT
-        if [ "$applied" = 1 ]; then
-            git -C "$SOURCE" apply --reverse "${patches[@]}" || status=1
-        fi
+        for (( i=applied-1; i>=0; i-- )); do
+            git -C "$SOURCE" apply --reverse "${patches[i]}" || status=1
+        done
         cp -pR "$saved/." "$BUILD/dlls/ntdll/" || status=1
         [ "$status" != 0 ] || rm -rf "$saved"
         exit "$status"
     }
     trap restore_ntdll EXIT
     for p in "$PORT_DIR"/patches-d3dmetal/*.patch; do patches+=("$p"); done
-    git -C "$SOURCE" apply --check "${patches[@]}"
-    git -C "$SOURCE" apply "${patches[@]}"
-    applied=1
+    for p in "${patches[@]}"; do
+        git -C "$SOURCE" apply --check "$p"
+        git -C "$SOURCE" apply "$p"
+        applied=$((applied + 1))
+    done
     # PE sources do not receive __APPLE__ from the MinGW compiler.
     printf 'x86_64_CFLAGS += -DWINE_D3DMETAL_TSD\n' > "$WORK_DIR/d3dmetal-ntdll.mk"
     make -C "$BUILD" -f Makefile -f "$WORK_DIR/d3dmetal-ntdll.mk" -j"${JOBS:-6}" \
