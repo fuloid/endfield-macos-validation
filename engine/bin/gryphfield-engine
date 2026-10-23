@@ -728,7 +728,7 @@ case "$command" in
     check-location) cmd_check_location "$@" ;;
     _trim-log) trim_log "$1" "$2"; finish_ok ;;   # for engine/ci-smoke.sh
     _discord-selftest) cmd_discord_selftest "$@" ;;   # for engine/ci-smoke.sh
-    _graphics-selftest)   # harmless fixture, with the real launch environment and HUD collector
+    _graphics-selftest)   # mode fixture.exe [stacks-label]: harmless fixture, real launch environment and HUD collector
         use_wine "$1"
         LOG_CAP_MB="$(log_cap_mb)"
         perf_start
@@ -737,7 +737,7 @@ case "$command" in
         fixture_pid=$! fixture_start=$SECONDS sampled=0
         while kill -0 "$fixture_pid" 2>/dev/null; do
             if [ "$sampled" = 0 ] && [ "$SECONDS" -ge $((fixture_start + 30)) ]; then
-                /usr/bin/sample "$fixture_pid" 2 10 -file "$LOGS/device-$1-stacks.txt" 2>&1
+                /usr/bin/sample "$fixture_pid" 2 10 -file "$LOGS/${3:-device}-$1-stacks.txt" 2>&1
                 sampled=1
             fi
             if [ "$SECONDS" -ge $((fixture_start + 45)) ]; then kill -9 "$fixture_pid" 2>/dev/null; break; fi

@@ -175,6 +175,19 @@ for mode in dxmt d3dmetal; do
         note "- LIMITATION $mode: macOS emitted no attributable Metal HUD records; HUD runtime logging is unverified on this runner."
     fi
 done
+# Child processes once dxgi.dll is loaded: on a real Mac, D3DMetal's dxgi (loaded by GRYPHLINK's
+# crash reporter) made Launcher.exe fault inside NtCreateUserProcess. wined3d is the control.
+for mode in wined3d dxmt d3dmetal; do
+    /bin/bash "$E" _graphics-selftest "$mode" "$TEST_TOOLS/spawn-probe.exe" spawn > "$OUT/spawn-$mode.log" 2>&1
+    rc=$?
+    grep -E '^(spawn_|dxgi_loaded|factory_hr|adapter|result)' "$OUT/spawn-$mode.log"
+    steps="$(grep -E '^(spawn_[a-z_]+|factory_hr|adapter|result)=' "$OUT/spawn-$mode.log" | cut -d' ' -f1 | tr '\n' ' ')"
+    if [ "$mode" = wined3d ]; then
+        check 'wined3d: child processes start before and after dxgi loads' grep -q '^result=ok' "$OUT/spawn-$mode.log"
+    else
+        note "- INFO $mode: spawn probe exit $rc: $steps(see spawn-$mode.log)"
+    fi
+done
 check 'HUD collectors do not outlive the launch' bash -c "! pgrep -f '^$ENGINE/bin/gryphfield-hud ' >/dev/null"
 rm -f "$OUT/home/config.json"
 # Log limit: a 65 MB log with a 50 MB limit keeps its first and newest lines and drops to about half

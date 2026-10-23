@@ -147,6 +147,8 @@ jobs:
             -o "$RUNNER_TEMP/test-tools/Endfield.exe"
           x86_64-w64-mingw32-gcc -O2 -Wall -Wextra -Werror engine/tests/d3d11-probe.c \
             -o "$RUNNER_TEMP/test-tools/d3d11-probe.exe" -ld3d11 -ldxguid
+          x86_64-w64-mingw32-gcc -O2 -Wall -Wextra -Werror engine/tests/spawn-probe.c \
+            -o "$RUNNER_TEMP/test-tools/spawn-probe.exe" -ldxguid
           clang -O2 -Wall -Wextra -Werror -arch x86_64 engine/tests/framework-probe.c \
             -o "$RUNNER_TEMP/test-tools/framework-probe"
           clang -O2 -Wall -Wextra -Werror engine/tests/hud-test.m -framework Foundation \
