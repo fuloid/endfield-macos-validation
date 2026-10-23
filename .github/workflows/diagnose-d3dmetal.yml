@@ -199,6 +199,7 @@ jobs:
         id: assemble
         env:
           WINE_INSTALL: ${{ runner.temp }}/wine-validation/wine-install
+          GRYPHFIELD_D3DMETAL_TSD_NTDLL: '1'
         run: |
           base="$RUNNER_TEMP/baseline-app/Gryphfield.app/Contents/Resources/engine"
           stage="$RUNNER_TEMP/ntdll-variant"

@@ -179,6 +179,9 @@ done
 # NtCreateUserProcess/fork hypothesis was disproved: D3DMetal's native thread init expects GSBASE
 # on macOS TSD, while upstream Wine >= 10.5 points it at the TEB in PE code (MR 6866).
 for mode in wined3d dxmt d3dmetal; do
+    # Evidence for lingering servers or fixtures from the previous probe (a cross-tree server is reused).
+    { date -u +%H:%M:%S; ps -axww -o pid,ppid,etime,pcpu,command | grep -Ei 'wine|d3dmetal' | grep -v grep; } \
+        > "$OUT/processes-before-spawn-$mode.log" 2>&1
     /bin/bash "$E" _graphics-selftest "$mode" "$TEST_TOOLS/spawn-probe.exe" spawn > "$OUT/spawn-$mode.log" 2>&1
     rc=$?
     grep -E '^(spawn_|dxgi_loaded|factory|adapter|result)' "$OUT/spawn-$mode.log"

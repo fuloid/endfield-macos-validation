@@ -12,6 +12,8 @@
 # D3DMETAL_DIR   optional: extracted d3dmetal-<version> bundle (external/, x86_64-windows/) from
 #                Apple's Game Porting Toolkit, for the D3DMetal graphics mode
 # TOOLS_DIR      gryphfield-watch.exe, direct-launch.exe, discord-bridge.exe and gryphfield-discord (native)
+# GRYPHFIELD_D3DMETAL_TSD_NTDLL=1  CI/review only: install the experimental native-TSD ntdll pair
+#                (WINE_INSTALL/lib/wine-d3dmetal-ntdll) into wine-d3dmetal. Never set for the app build.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 OUT="${1:?usage: assemble.sh <out-dir>}"
@@ -112,8 +114,9 @@ build_d3dmetal_overlay() {
             fi
         done
     done
-    if [ -d "$WINE_INSTALL/lib/wine-d3dmetal-ntdll" ]; then
+    if [ "${GRYPHFIELD_D3DMETAL_TSD_NTDLL:-}" = 1 ]; then
         local variant="$WINE_INSTALL/lib/wine-d3dmetal-ntdll"
+        [ -d "$variant" ] || die "GRYPHFIELD_D3DMETAL_TSD_NTDLL=1 but $variant is missing"
         (cd "$variant" && shasum -a 256 -c SHA256SUMS)
         for file in x86_64-unix/ntdll.so x86_64-windows/ntdll.dll; do
             rm -f "$dst/lib/wine/$file"
