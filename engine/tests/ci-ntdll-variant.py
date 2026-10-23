@@ -88,6 +88,11 @@ def main():
                     test['passed'] = test['exit_code'] == 0 and marker in content
                     result['tests'][label] = test
                     require(test['passed'], name + ' ' + label)
+                    if not test['passed']:
+                        lines = content.splitlines()
+                        highlights = [line for line in lines if re.search(
+                            r'cannot protect|cannot restore|Unhandled |result=failed|^FAIL|:err:', line)]
+                        print('\n'.join((highlights or lines[-30:])[:40]), flush=True)
                     save()
             finally:
                 run([server, '-k'], env, evidence / 'kill.log', 30)

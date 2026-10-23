@@ -206,7 +206,18 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: d3dmetal-ntdll-probe-evidence
-          path: ${{ runner.temp }}/ntdll-variant/evidence
+          path: |
+            ${{ runner.temp }}/ntdll-variant/evidence/*.txt
+            ${{ runner.temp }}/ntdll-variant/evidence/*.json
+            ${{ runner.temp }}/ntdll-variant/evidence/variant-SHA256SUMS
+            ${{ runner.temp }}/ntdll-variant/evidence/probes/*.json
+            ${{ runner.temp }}/ntdll-variant/evidence/probes/*.txt
+            ${{ runner.temp }}/ntdll-variant/evidence/probes/*.log
+            ${{ runner.temp }}/ntdll-variant/evidence/probes/wine/*.log
+            ${{ runner.temp }}/ntdll-variant/evidence/probes/wine-dxmt/*.log
+            ${{ runner.temp }}/ntdll-variant/evidence/probes/wine-d3dmetal/*.log
+            ${{ runner.temp }}/ntdll-variant/evidence/probes/graphics-logs
+            ${{ runner.temp }}/ntdll-variant/evidence/probes/crashes-*
           retention-days: 7
       - name: Run the unchanged engine smoke suite (Intel Homebrew hidden)
         if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
@@ -221,5 +232,23 @@ jobs:
         if: always()
         with:
           name: d3dmetal-ntdll-variant-evidence
-          path: ${{ runner.temp }}/ntdll-variant/evidence
+          path: |
+            ${{ runner.temp }}/ntdll-variant/evidence/*.txt
+            ${{ runner.temp }}/ntdll-variant/evidence/*.json
+            ${{ runner.temp }}/ntdll-variant/evidence/variant-SHA256SUMS
+            ${{ runner.temp }}/ntdll-variant/evidence/probes/*.json
+            ${{ runner.temp }}/ntdll-variant/evidence/probes/*.txt
+            ${{ runner.temp }}/ntdll-variant/evidence/probes/*.log
+            ${{ runner.temp }}/ntdll-variant/evidence/probes/wine/*.log
+            ${{ runner.temp }}/ntdll-variant/evidence/probes/wine-dxmt/*.log
+            ${{ runner.temp }}/ntdll-variant/evidence/probes/wine-d3dmetal/*.log
+            ${{ runner.temp }}/ntdll-variant/evidence/probes/graphics-logs
+            ${{ runner.temp }}/ntdll-variant/evidence/probes/crashes-*
+            ${{ runner.temp }}/ntdll-variant/evidence/smoke/*.jsonl
+            ${{ runner.temp }}/ntdll-variant/evidence/smoke/*.json
+            ${{ runner.temp }}/ntdll-variant/evidence/smoke/*.txt
+            ${{ runner.temp }}/ntdll-variant/evidence/smoke/*.log
+            ${{ runner.temp }}/ntdll-variant/evidence/smoke/*.err
+            ${{ runner.temp }}/ntdll-variant/evidence/smoke/*.png
+            ${{ runner.temp }}/ntdll-variant/evidence/smoke/logs
           retention-days: 7
