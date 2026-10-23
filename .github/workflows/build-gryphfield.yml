@@ -9,7 +9,7 @@ name: Build Gryphfield.app
       ui_ref:
         description: 'Branch or commit of the Gryphfield UI'
         type: string
-        default: 03b66e9dc5ecb7b36bead2bf2052000cc7564f52
+        default: 884168e4c981b7a7b8a433454db10a7c07fd505a
 
 permissions:
   contents: read
