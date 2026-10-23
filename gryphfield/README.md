@@ -24,6 +24,14 @@ npx -y -p @native-sdk/cli@0.11.0 native dev --core
 
 The actual app invokes `/Applications/Gryphfield.app/Contents/Resources/engine/bin/gryphfield-engine` through `/bin/bash`. Native SDK's TypeScript core currently has no supported API for locating its own `.app` bundle at runtime. This matches the current install instruction but needs a host resource-path hook if users should run the app from elsewhere. The SDK packages ordinary assets under `Contents/Resources/assets/`; the engine needs an explicit CI copy to `Contents/Resources/engine/`.
 
+## Windows UI demo
+
+Run `powershell -ExecutionPolicy Bypass -File windows-demo/build.ps1` on Windows with Node 24 and Zig 0.16.0. The default output is `D:\Jimu\gryphfield-windows-demo`; double-click `bin\gryphfield-demo.exe` and follow `START-HERE.txt` for game-presence, failure, reset and fake macOS version scenarios. Override `-ZigDirectory` or `-OutputDirectory` when needed. Runtime paths are bound to the output directory and installed Node executable at build time; rebuild to relocate them.
+
+This explicit build creates an ignored `.windows-demo/app` overlay of the same view and services. Only the overlay's manifest and initial engine/probe commands change. The production `app.json`, `src/core.ts`, `src/app.native` and macOS CI remain untouched. The Windows mock uses local placeholders, streams a simulated stable session in about five seconds, and keeps it marked running for stop/restart/kill. No game, Wine, graphics layer or installer runs. Folder selection stays at the demo folder; CPU capture writes an explanatory text file.
+
+The build enables SDK automation for UI verification and supplies a Node load hook only during the build to work around SDK 0.11.0's imports of TypeScript inside `node_modules`. It does not modify the SDK cache. The overlay also binds startup image paths to the packaged resources because SDK 0.11.0 reads them relative to the working directory on Windows. Run `node --test windows-demo/mock.test.mjs` for the mock protocol integration check. With other demo windows closed, `node windows-demo/verify-ui.mjs` opens the packaged app, clicks through the demo, and writes screenshots plus semantic snapshots; it resets the demo's mock data before and after verification.
+
 ## Engine contract to settle
 
 - Add `uninstall-game --yes` for the game's folder only; the current draft lists no uninstall command. UI confirms twice before invoking it.

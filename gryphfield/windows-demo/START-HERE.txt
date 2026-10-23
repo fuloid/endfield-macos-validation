@@ -1,0 +1,47 @@
+GRYPHFIELD WINDOWS DEMO
+
+Double-click "Launch Gryphfield Demo" (or bin\gryphfield-demo.exe).
+Keep the entire folder together at
+D:\Jimu\gryphfield-windows-demo (runtime paths are set when built).
+Node 24 is already installed on this PC and is used by the mock engine.
+
+This is the real Native SDK UI, with a fake engine. No Wine, game, Rosetta,
+graphics driver or macOS installation is started, installed or removed.
+Click Set up on first run, then try Run GRYPHLINK or Run Endfield Directly.
+The Stable 30s marker is simulated after about five seconds. The simulated
+session stays running so the stop, restart and kill controls can be tried.
+Settings are saved locally. Uninstall and reset only affect demo placeholders.
+
+SCENARIOS (PowerShell, in this folder)
+  cd D:\Jimu\gryphfield-windows-demo
+  node mock-engine.mjs mock-game on
+  node mock-engine.mjs mock-game off
+  node mock-engine.mjs mock-fail parent
+  node mock-engine.mjs mock-fail ace
+  node mock-engine.mjs mock-fail tace
+  node mock-engine.mjs mock-fail other
+  node mock-engine.mjs mock-fail off
+
+Use Refresh in the UI after switching game presence. Failures apply to the
+next launch. Default: game present, no failure, fake macOS 27.0.
+Close the app before switching the macOS version, then run:
+  $env:GRYPHFIELD_DEMO_MACOS = '26.3'
+  .\bin\gryphfield-demo.exe
+Settings > Graphics > D3DMetal now opens the unavailable-on-this-Mac dialog.
+  $env:GRYPHFIELD_DEMO_MACOS = '27.0'
+  .\bin\gryphfield-demo.exe
+D3DMetal can now be selected and saved. You can also override failures with
+GRYPHFIELD_DEMO_FAIL=parent|ace|tace|other|off (restart the app to inherit it).
+
+For a fresh first run, close the app and use:
+  node mock-engine.mjs mock-reset
+This resets demo settings, setup and game placeholders only.
+Data: .mock-state.json, .mock-data\config.json, .mock-logs\latest-wine.log.
+macOS-specific performance capture and folder picking are simulated too.
+
+REBUILD (from the repository's gryphfield directory)
+  powershell -ExecutionPolicy Bypass -File windows-demo\build.ps1
+The build script prepares an ignored Windows overlay and calls the pinned
+Native SDK 0.11.0 check/build/package commands. app.json, src/core.ts and
+src/app.native used by macOS CI are unchanged. To relocate this demo, rebuild
+with -OutputDirectory 'E:\somewhere\gryphfield-demo'.
