@@ -3,6 +3,10 @@ name: Diagnose D3DMetal thread initialization
 'on':
   workflow_dispatch:
     inputs:
+      ntdll_variant:
+        description: 'Test the experimental Wine 11.19 native-TSD ntdll cache (no app packaging)'
+        type: boolean
+        default: false
       baseline_app_run_id:
         description: 'Wine 11.19 app artifact to compare with CrossOver'
         type: string
@@ -24,6 +28,7 @@ defaults:
 
 jobs:
   compare:
+    if: ${{ !inputs.ntdll_variant }}
     runs-on: macos-15
     timeout-minutes: 40
     env:
@@ -107,4 +112,106 @@ jobs:
         with:
           name: d3dmetal-ab-evidence
           path: ${{ runner.temp }}/d3dmetal-ab/evidence
+          retention-days: 7
+
+  ntdll-variant:
+    if: inputs.ntdll_variant
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+      HOMEBREW_NO_INSTALL_CLEANUP: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Record environment
+        run: |
+          mkdir -p "$RUNNER_TEMP/ntdll-variant/evidence"
+          { sw_vers; uname -a; xcodebuild -version; git rev-parse HEAD; } > "$RUNNER_TEMP/ntdll-variant/evidence/environment.txt"
+      - name: Restore the full Wine build and experimental ntdll pair
+        id: wine
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ runner.temp }}/wine-validation/wine-install
+          key: wine-install-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('port/mac-handoff/patches/**', 'port/mac-handoff/patches-d3dmetal/**', 'port/mac-handoff/build-mac.sh', 'scripts/ci-macos-deps.sh') }}
+      - name: Require the matched experimental pair
+        run: |
+          test '${{ steps.wine.outputs.cache-hit }}' = true
+          variant="$RUNNER_TEMP/wine-validation/wine-install/lib/wine-d3dmetal-ntdll"
+          (cd "$variant" && shasum -a 256 -c SHA256SUMS)
+          cp "$variant/SHA256SUMS" "$RUNNER_TEMP/ntdll-variant/evidence/variant-SHA256SUMS"
+          nm -a "$variant/x86_64-unix/ntdll.so" | grep mac_localtime \
+            > "$RUNNER_TEMP/ntdll-variant/evidence/variant-localtime-symbol.txt"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: Gryphfield-macos
+          run-id: ${{ inputs.baseline_app_run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/baseline-download
+      - name: Reuse the baseline app's graphics payloads, launcher and helpers
+        run: |
+          (cd "$RUNNER_TEMP/baseline-download" && shasum -a 256 -c Gryphfield-macos.zip.sha256)
+          ditto -x -k "$RUNNER_TEMP/baseline-download/Gryphfield-macos.zip" "$RUNNER_TEMP/baseline-app"
+          base="$RUNNER_TEMP/baseline-app/Gryphfield.app/Contents/Resources/engine"
+          stage="$RUNNER_TEMP/ntdll-variant"
+          mkdir -p "$stage/tools" "$stage/dxmt/x86_64-unix" "$stage/dxmt/x86_64-windows"
+          cp "$base/tools/gryphfield-watch.exe" "$base/tools/direct-launch.exe" "$base/tools/discord-bridge.exe" "$stage/tools/"
+          cp "$base/bin/gryphfield-discord" "$base/bin/gryphfield-hud" "$stage/tools/"
+          for name in d3d11 dxgi d3d10core winemetal; do
+            for arch in x86_64-unix x86_64-windows; do
+              if [ "$arch" = x86_64-unix ]; then suffix=so; else suffix=dll; fi
+              src="$base/wine-dxmt/lib/wine/$arch/$name.$suffix"
+              [ ! -f "$src" ] || cp -pL "$src" "$stage/dxmt/$arch/"
+            done
+          done
+          mkdir -p "$stage/d3dmetal/x86_64-windows" "$stage/d3dmetal/external/D3DMetal.framework/Versions"
+          cp "$base/wine-d3dmetal/lib/wine/x86_64-windows/"{d3d11,dxgi}.dll "$stage/d3dmetal/x86_64-windows/"
+          cp "$base/wine-d3dmetal/lib/external/libd3dshared.dylib" "$stage/d3dmetal/external/"
+          cp -RP "$base/wine-d3dmetal/lib/external/D3DMetal.framework/Versions/A" \
+            "$stage/d3dmetal/external/D3DMetal.framework/Versions/"
+          cp "$base/VERSION.json" "$stage/evidence/baseline-VERSION.json"
+      - name: Build diagnostic fixtures
+        run: |
+          brew install mingw-w64 >/dev/null
+          tools="$RUNNER_TEMP/ntdll-variant/test-tools"
+          mkdir -p "$tools"
+          x86_64-w64-mingw32-gcc -O2 -static -Wall -Wextra -Werror engine/tests/teb-probe.c -o "$tools/teb-probe.exe"
+          x86_64-w64-mingw32-gcc -O2 -shared -Wall -Wextra -Werror engine/tests/teb-tls.c -o "$tools/teb-tls.dll"
+          x86_64-w64-mingw32-gcc -O2 -static -Wall -Wextra -Werror tools/syscall-probe/syscall-probe.c -o "$tools/syscall-probe.exe"
+          x86_64-w64-mingw32-gcc -O2 -static -Wall -Wextra -Werror port/mac-handoff/rosetta_probe.c -o "$tools/rosetta-probe.exe"
+          x86_64-w64-mingw32-gcc -O2 -Wall -Wextra -Werror engine/tests/spawn-probe.c -o "$tools/spawn-probe.exe" -ldxguid
+          x86_64-w64-mingw32-gcc -O2 -Wall -Wextra -Werror engine/tests/d3d11-probe.c -o "$tools/d3d11-probe.exe" -ld3d11 -ldxguid
+          x86_64-w64-mingw32-gcc -O2 -Wall -Wextra -Werror tools/discord-pipe-probe/discord-pipe-probe.c -o "$tools/discord-pipe-probe.exe"
+          clang -O2 -Wall -Wextra -Werror -arch x86_64 engine/tests/framework-probe.c -o "$tools/framework-probe"
+      - name: Assemble a CI-only engine with the experimental pair
+        id: assemble
+        env:
+          WINE_INSTALL: ${{ runner.temp }}/wine-validation/wine-install
+        run: |
+          base="$RUNNER_TEMP/baseline-app/Gryphfield.app/Contents/Resources/engine"
+          stage="$RUNNER_TEMP/ntdll-variant"
+          DXMT_DIR="$stage/dxmt" D3DMETAL_DIR="$stage/d3dmetal" MVK_DIR="$base/moltenvk" \
+            STOCK_MVK_DYLIB="$base/moltenvk-stock/libMoltenVK.dylib" \
+            GRYPHLINK_DIR="$base/gryphlink/GRYPHLINK" TOOLS_DIR="$stage/tools" \
+            PATCH_COMMIT="$(git rev-parse --short HEAD)" bash engine/assemble.sh "$stage/engine"
+          test -f "$stage/engine/wine-d3dmetal/EXPERIMENTAL-D3DMETAL-NTDLL.txt"
+      - name: Run the unchanged engine smoke suite (Intel Homebrew hidden)
+        run: |
+          hide() { for d in /usr/local/opt /usr/local/Cellar; do [ ! -e "$d" ] || sudo mv "$d" "$d.hidden"; done; }
+          unhide() { for d in /usr/local/opt /usr/local/Cellar; do [ ! -e "$d.hidden" ] || sudo mv "$d.hidden" "$d"; done; }
+          trap unhide EXIT
+          hide
+          bash engine/ci-smoke.sh "$RUNNER_TEMP/ntdll-variant/engine" \
+            "$RUNNER_TEMP/ntdll-variant/evidence/smoke" "$RUNNER_TEMP/ntdll-variant/test-tools"
+      - name: Check TEB/TLS/SEH, direct syscalls and D3DMetal thread initialization
+        if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
+        run: |
+          python3 -I engine/tests/ci-ntdll-variant.py "$RUNNER_TEMP/ntdll-variant/engine" \
+            "$RUNNER_TEMP/ntdll-variant/test-tools" "$RUNNER_TEMP/ntdll-variant/evidence/probes"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: d3dmetal-ntdll-variant-evidence
+          path: ${{ runner.temp }}/ntdll-variant/evidence
           retention-days: 7
