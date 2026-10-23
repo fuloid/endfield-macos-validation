@@ -3,6 +3,14 @@ name: Validate Wine on macOS
 'on':
   workflow_dispatch:
     inputs:
+      diagnose_ntdll:
+        description: 'Run CI-only native-TSD ntdll diagnostics after the Wine build'
+        type: boolean
+        default: false
+      baseline_app_run_id:
+        description: 'App artifact supplying pinned graphics payloads for ntdll diagnostics'
+        type: string
+        default: '39913002430'
       # game_test (Endfield launcher test) is disabled together with the endfield job below.
       rebuild:
         description: 'Ignore the cached Wine build and rebuild from source'
@@ -262,6 +270,17 @@ jobs:
           retention-days: 3
           compression-level: 0
           if-no-files-found: error
+
+  ntdll-diagnostic:
+    if: github.event_name == 'workflow_dispatch' && inputs.diagnose_ntdll
+    needs: macos
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/diagnose-d3dmetal.yml
+    with:
+      ntdll_variant: true
+      baseline_app_run_id: ${{ inputs.baseline_app_run_id }}
 
   # Endfield launcher test: disabled for now. The GitHub macOS VM has no usable OpenGL and
   # its paravirtual Metal device breaks the game window (see port/audit/ci-run-38903877303);

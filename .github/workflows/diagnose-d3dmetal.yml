@@ -1,6 +1,17 @@
 name: Diagnose D3DMetal thread initialization
 
 'on':
+  workflow_call:
+    inputs:
+      ntdll_variant:
+        type: boolean
+        default: true
+      baseline_app_run_id:
+        type: string
+        default: '39913002430'
+      wine_cache_key:
+        type: string
+        default: ''
   workflow_dispatch:
     inputs:
       ntdll_variant:
