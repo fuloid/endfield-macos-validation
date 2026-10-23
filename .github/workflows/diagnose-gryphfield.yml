@@ -4,7 +4,7 @@ name: Diagnose Gryphfield graphics and UI
     inputs:
       ui_ref:
         type: string
-        default: 884168e4c981b7a7b8a433454db10a7c07fd505a
+        default: 17dcde22931e25cb7f9f3eb3a472151c90aacbac
       base_run:
         description: App run containing the unchanged patched MoltenVK artifact
         type: string
