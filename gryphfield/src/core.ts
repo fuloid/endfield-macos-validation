@@ -510,6 +510,8 @@ export function update(model: Model, msg: Msg): Model | [Model, Cmd<Msg>] {
       return { ...next, graphics: usableGraphics(next, next.graphics) };
     }
     case "host_exited":
+      // A failed sw_vers must not leave a partial version looking authoritative.
+      return msg.code === 0 ? model : { ...model, macosVersion: asciiBytes("") };
     case "host_failed":
       return model;
     case "toggle_metal_hud": return { ...model, metalHud: !model.metalHud, settingsSaved: false };
