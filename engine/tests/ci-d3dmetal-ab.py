@@ -48,14 +48,31 @@ def main():
             if result['ready']:
                 break
         results[label] = {'setup': setup, 'probes': {}}
+        # Normal launcher runs install this builtin stub; _graphics-selftest bypasses that path.
+        shutil.copy2(engine / 'wine-dxmt/lib/wine/x86_64-windows/winemetal.dll',
+                     home / 'prefix/drive_c/windows/system32/winemetal.dll')
+        runtime_env = dict(env, WINEPREFIX=str(home / 'prefix'), WINEARCH='win64',
+                           DYLD_FALLBACK_LIBRARY_PATH=f'{engine}/moltenvk:{engine}/wine/lib/external:/usr/lib',
+                           WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d',
+                           ROSETTA_ADVERTISE_AVX='1', WINEDEBUG='fixme-all,err+all,warn+seh',
+                           WINEESYNC='0', WINEFSYNC='0', WINENTSYNC='0')
         for mode in ['wined3d', 'dxmt', 'd3dmetal']:
+            # Keep startup/services outside the graphics fixture's 45-second watchdog.
+            run([str(engine / 'wine/bin/wineserver'), '-p'], runtime_env,
+                evidence / f'persist-{mode}.log', 30)
+            warmup = run([str(engine / 'wine/bin/wine'), 'cmd', '/c', 'exit', '0'], runtime_env,
+                         evidence / f'warmup-{mode}.log', 180)
             before = reports()
             log = evidence / f'spawn-{mode}.log'
             result = run(cli + ['_graphics-selftest', mode, str(probe), 'spawn'], env, log, 110)
             text = log.read_text(errors='replace')
             fields = dict(re.findall(r'^(spawn_[a-z_]+|dxgi_loaded|factory|factory_hr|adapter|adapter_hr|adapter_desc_hr|result)=([^\s]+)', text, re.M))
             result['fields'] = fields
-            if result['timed_out'] or result['exit_code'] in (137, -9):
+            result['warmup'] = warmup
+            result['gpu_unsupported'] = 'GPU not supported:' in text
+            if fields.get('dxgi_loaded') == 'no':
+                result['outcome'] = 'dxgi_load_error'
+            elif result['timed_out'] or result['exit_code'] in (137, -9):
                 result['outcome'] = 'timeout_or_killed'
             elif fields.get('result') == 'ok' and result['exit_code'] == 0:
                 result['outcome'] = 'ok'
