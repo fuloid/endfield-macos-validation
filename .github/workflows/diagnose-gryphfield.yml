@@ -52,7 +52,7 @@ jobs:
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ${{ runner.temp }}/wine-validation/wine-install
-          key: wine-install-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('port/mac-handoff/patches/**', 'port/mac-handoff/build-mac.sh', 'scripts/ci-macos-deps.sh') }}
+          key: wine-install-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('port/mac-handoff/patches/**', 'port/mac-handoff/patches-d3dmetal/**', 'port/mac-handoff/build-mac.sh', 'scripts/ci-macos-deps.sh') }}
       - name: Require the cached Wine build
         run: |
           if [ "${{ steps.wine.outputs.cache-hit }}" != true ]; then
