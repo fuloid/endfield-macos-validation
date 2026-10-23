@@ -21,6 +21,21 @@ check() {   # description command...
 done_ok() { grep -q '"event":"done","ok":true' "$1"; }
 
 note '## Gryphfield engine smoke test'
+# Exercise the real mode/tree/environment selection without starting Wine.
+for version in 26.3 26 26.4 26.10 27.0 27; do
+    expected=d3dmetal
+    case "$version" in 26.3|26) expected=dxmt ;; esac
+    GRYPHFIELD_TEST_MACOS_VERSION="$version" /bin/bash "$E" _wine-mode-selftest d3dmetal \
+        > "$OUT/mode-$version.jsonl" 2> "$OUT/mode-$version.err"
+    framework=""
+    [ "$expected" != d3dmetal ] || framework="$ENGINE/wine-d3dmetal/lib/external/D3DMetal.framework/D3DMetal"
+    check "macOS $version selects $expected tree and environment" grep -qFx \
+        "$expected|$ENGINE/wine-$expected|$framework|-force-d3d11" "$OUT/mode-$version.jsonl"
+    if [ "$expected" = dxmt ]; then
+        check "macOS $version logs D3DMetal fallback" grep -qFx \
+            "D3DMetal requires macOS 26.4 or later (found $version); using DXMT" "$OUT/mode-$version.err"
+    fi
+done
 /bin/bash "$E" status > "$OUT/status-1.jsonl" 2> "$OUT/status-1.err"
 cat "$OUT/status-1.jsonl"
 check 'status reports and finishes' done_ok "$OUT/status-1.jsonl"

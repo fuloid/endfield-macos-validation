@@ -172,6 +172,19 @@ graphics_mode() {   # --graphics flag, else config, else dxmt
 # wine-d3dmetal has Apple's D3DMetal d3d11/dxgi (Game Porting Toolkit) instead; the game runs D3D11.
 use_wine() {   # mode
     MODE="$1"
+    if [ "$MODE" = d3dmetal ]; then
+        # Version override is for engine/ci-smoke.sh; compare major/minor numerically.
+        local macos major minor
+        macos="${GRYPHFIELD_TEST_MACOS_VERSION:-$(sw_vers -productVersion)}"
+        major="${macos%%.*}"
+        minor="${macos#*.}"
+        [ "$minor" != "$macos" ] || minor=0
+        minor="${minor%%.*}"
+        if [ "$major" -lt 26 ] || { [ "$major" -eq 26 ] && [ "$minor" -lt 4 ]; }; then
+            say "D3DMetal requires macOS 26.4 or later (found $macos); using DXMT"
+            MODE=dxmt
+        fi
+    fi
     TREE="$ENGINE/wine"
     if [ "$MODE" = d3dmetal ]; then
         if [ -x "$ENGINE/wine-d3dmetal/bin/wine" ]; then TREE="$ENGINE/wine-d3dmetal"
@@ -728,6 +741,10 @@ case "$command" in
     check-location) cmd_check_location "$@" ;;
     _trim-log) trim_log "$1" "$2"; finish_ok ;;   # for engine/ci-smoke.sh
     _discord-selftest) cmd_discord_selftest "$@" ;;   # for engine/ci-smoke.sh
+    _wine-mode-selftest)   # for engine/ci-smoke.sh: select the real tree/environment without launching Wine
+        use_wine "${1:-$(graphics_mode)}"
+        emit "$MODE|$TREE|${D3DMETAL_FRAMEWORK_PATH:-}|${GAME_ARGS[*]}"
+        finish_ok ;;
     _graphics-selftest)   # mode fixture.exe [stacks-label]: harmless fixture, real launch environment and HUD collector
         use_wine "$1"
         if [ "${3:-}" = spawn ]; then

@@ -156,6 +156,7 @@ jobs:
           "$RUNNER_TEMP/test-tools/hud-test"
       - name: Assemble the engine
         env:
+          GRYPHFIELD_D3DMETAL_TSD_NTDLL: '1'
           WINE_INSTALL: ${{ runner.temp }}/wine-validation/wine-install
           DXMT_DIR: ${{ runner.temp }}/dxmt/${{ env.DXMT_LABEL }}
           D3DMETAL_DIR: ${{ runner.temp }}/d3dmetal/${{ env.D3DMETAL_LABEL }}
@@ -248,10 +249,19 @@ jobs:
       - name: Embed the engine and sign ad hoc
         run: |
           set -euo pipefail
-          if [ -f "$RUNNER_TEMP/engine/wine-d3dmetal/EXPERIMENTAL-D3DMETAL-NTDLL.txt" ]; then
-            echo '::error::Experimental GS-model ntdll is CI/review only and cannot be packaged into the app.'
-            exit 1
-          fi
+          engine="$RUNNER_TEMP/engine"
+          variant="$RUNNER_TEMP/wine-validation/wine-install/lib/wine-d3dmetal-ntdll"
+          test -f "$engine/wine-d3dmetal/EXPERIMENTAL-D3DMETAL-NTDLL.txt" || { echo '::error::D3DMetal experimental ntdll marker is missing.'; exit 1; }
+          (cd "$variant" && shasum -a 256 -c SHA256SUMS)
+          for file in x86_64-unix/ntdll.so x86_64-windows/ntdll.dll; do
+            cmp "$variant/$file" "$engine/wine-d3dmetal/lib/wine/$file"
+            for tree in wine wine-dxmt; do
+              test -f "$engine/$tree/lib/wine/$file"
+              if cmp -s "$variant/$file" "$engine/$tree/lib/wine/$file"; then
+                echo "::error::Experimental D3DMetal ntdll leaked into $tree ($file)."; exit 1
+              fi
+            done
+          done
           mkdir -p "$RUNNER_TEMP/dist"
           app="$RUNNER_TEMP/dist/Gryphfield.app"
           ditto "$APP_SRC" "$app"
