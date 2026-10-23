@@ -16,7 +16,7 @@ defaults:
   run:
     shell: bash
 env:
-  ENGINE_VERSION: 0.1.0-pre12
+  ENGINE_VERSION: 0.1.0-pre13
   # DXMT v0.80 (589adb78) built by "Build DXMT (experiment)" with tools/dxmt/*.patch, frozen on R2.
   # DXMT_LABEL is the tarball's top directory.
   DXMT_VERSION: v0.80-gryphfield-1
