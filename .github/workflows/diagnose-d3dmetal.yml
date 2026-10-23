@@ -196,7 +196,20 @@ jobs:
             GRYPHLINK_DIR="$base/gryphlink/GRYPHLINK" TOOLS_DIR="$stage/tools" \
             PATCH_COMMIT="$(git rev-parse --short HEAD)" bash engine/assemble.sh "$stage/engine"
           test -f "$stage/engine/wine-d3dmetal/EXPERIMENTAL-D3DMETAL-NTDLL.txt"
+      - name: Check TEB/TLS/SEH, direct syscalls and D3DMetal thread initialization
+        if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
+        run: |
+          python3 -I engine/tests/ci-ntdll-variant.py "$RUNNER_TEMP/ntdll-variant/engine" \
+            "$RUNNER_TEMP/ntdll-variant/test-tools" "$RUNNER_TEMP/ntdll-variant/evidence/probes"
+      - name: Upload focused probe evidence before the launcher smoke suite
+        if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: d3dmetal-ntdll-probe-evidence
+          path: ${{ runner.temp }}/ntdll-variant/evidence
+          retention-days: 7
       - name: Run the unchanged engine smoke suite (Intel Homebrew hidden)
+        if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
         run: |
           hide() { for d in /usr/local/opt /usr/local/Cellar; do [ ! -e "$d" ] || sudo mv "$d" "$d.hidden"; done; }
           unhide() { for d in /usr/local/opt /usr/local/Cellar; do [ ! -e "$d.hidden" ] || sudo mv "$d.hidden" "$d"; done; }
@@ -204,11 +217,6 @@ jobs:
           hide
           bash engine/ci-smoke.sh "$RUNNER_TEMP/ntdll-variant/engine" \
             "$RUNNER_TEMP/ntdll-variant/evidence/smoke" "$RUNNER_TEMP/ntdll-variant/test-tools"
-      - name: Check TEB/TLS/SEH, direct syscalls and D3DMetal thread initialization
-        if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
-        run: |
-          python3 -I engine/tests/ci-ntdll-variant.py "$RUNNER_TEMP/ntdll-variant/engine" \
-            "$RUNNER_TEMP/ntdll-variant/test-tools" "$RUNNER_TEMP/ntdll-variant/evidence/probes"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
